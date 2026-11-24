@@ -1,7 +1,7 @@
 # Site Guardian — Rebuild Design (overall architecture + Stage 1)
 
 Date: 2026-11-24
-Status: awaiting user approval
+Status: approved 2026-11-24
 
 ## 1. Intent
 
