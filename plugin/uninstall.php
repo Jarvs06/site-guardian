@@ -19,3 +19,5 @@ if ( $site_guardian_page_id > 0 ) {
 foreach ( Options::all() as $site_guardian_option ) {
 	delete_option( $site_guardian_option );
 }
+
+delete_metadata( 'user', 0, 'site_guardian_conversation_id', '', true );

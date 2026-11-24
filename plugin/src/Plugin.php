@@ -29,6 +29,10 @@ final class Plugin {
 		\SiteGuardian\Rest\AdminController::register();
 		\SiteGuardian\Admin\SettingsPage::register();
 		\SiteGuardian\Admin\Notices::register();
+		\SiteGuardian\Rest\ChatController::register();
+		\SiteGuardian\Frontend\Access::register();
+		\SiteGuardian\Frontend\Template::register();
+		\SiteGuardian\Frontend\Page::register();
 
 		register_activation_hook( $file, array( self::class, 'activate' ) );
 		register_deactivation_hook( $file, array( self::class, 'deactivate' ) );
@@ -42,6 +46,7 @@ final class Plugin {
 	 */
 	public static function activate(): void {
 		add_option( \SiteGuardian\Support\Options::CAPABILITY, 'manage_options', '', false );
+		\SiteGuardian\Frontend\Page::ensure();
 	}
 
 	/**
