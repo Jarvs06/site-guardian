@@ -25,6 +25,8 @@ final class Plugin {
 			return;
 		}
 
+		\SiteGuardian\Rest\VerifyController::register();
+
 		register_activation_hook( $file, array( self::class, 'activate' ) );
 		register_deactivation_hook( $file, array( self::class, 'deactivate' ) );
 	}
