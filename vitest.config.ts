@@ -2,7 +2,8 @@ import { defineConfig } from "vitest/config";
 
 // Unit tests: *.test.ts (integration tests *.int.test.ts are excluded).
 // Integration tests: *.int.test.ts, run with `pnpm test:integration`.
-// Later tasks add the `plugin` and `e2e` workspace packages.
+// Plugin tests: plain-JS front-end tests of the WordPress plugin, under jsdom.
+// A later task adds the `e2e` workspace package.
 export default defineConfig({
   test: {
     projects: [
@@ -20,6 +21,15 @@ export default defineConfig({
           globalSetup: ["supabase/tests/globalSetup.ts"],
           exclude: ["**/node_modules/**", "**/dist/**"],
           testTimeout: 30_000,
+        },
+      },
+      {
+        test: {
+          name: "plugin",
+          root: "plugin",
+          include: ["assets/js/__tests__/**/*.test.js"],
+          exclude: ["**/node_modules/**", "vendor/**", "assets/vendor/**"],
+          environment: "jsdom",
         },
       },
     ],

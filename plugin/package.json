@@ -1,0 +1,14 @@
+{
+  "name": "@sg/plugin-assets",
+  "private": true,
+  "type": "module",
+  "description": "Front-end assets of the Site Guardian WordPress plugin (plain ES modules, no bundler). Dev-only: tests.",
+  "scripts": {
+    "test": "vitest run --root .. --project plugin"
+  },
+  "devDependencies": {
+    "dompurify": "^3.2.6",
+    "jsdom": "^26.1.0",
+    "vitest": "^3.2.4"
+  }
+}
