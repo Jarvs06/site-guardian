@@ -16,7 +16,8 @@ export default defineConfig({
       {
         test: {
           name: "integration",
-          include: ["{apps,packages}/*/src/**/*.int.test.ts"],
+          include: ["{apps,packages}/*/src/**/*.int.test.ts", "supabase/**/*.int.test.ts"],
+          globalSetup: ["supabase/tests/globalSetup.ts"],
           exclude: ["**/node_modules/**", "**/dist/**"],
           testTimeout: 30_000,
         },
