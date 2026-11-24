@@ -33,7 +33,7 @@
 			.then( function ( r ) {
 				var msg = r.body && typeof r.body.message === 'string' ? r.body.message : 'Request failed.';
 				progress.textContent = msg;
-				if ( r.ok && r.body && r.body.connected ) {
+				if ( r.ok && r.body && r.body.connected && r.body.ok !== false ) {
 					window.setTimeout( function () {
 						window.location.reload();
 					}, 800 );

@@ -84,49 +84,55 @@ final class AdminController {
 	 * Run a locked connect attempt.
 	 *
 	 * @param callable $connector Returns a Result.
-	 * @return array{status:int,body:array{connected:bool,message:string}}
+	 * @return array{status:int,body:array<string,mixed>}
 	 */
 	public static function connect_response( callable $connector ): array {
-		if ( ! self::acquire_lock() ) {
-			return array(
-				'status' => 409,
-				'body'   => array(
-					'connected' => false,
-					'message'   => 'A connection attempt is already in progress. Please wait a moment.',
-				),
-			);
-		}
-		try {
-			/** @var Result $result */
-			$result = $connector();
-		} finally {
-			delete_option( Options::CONNECT_LOCK );
-		}
-		return array(
-			'status' => 200,
-			'body'   => array(
-				'connected' => $result->ok,
-				'message'   => $result->ok ? 'Connected to Site Guardian.' : (string) $result->message,
-			),
+		return self::locked(
+			static function () use ( $connector ): array {
+				/** @var Result $result */
+				$result = $connector();
+				return array(
+					'status' => 200,
+					'body'   => array(
+						'connected' => $result->ok,
+						'message'   => $result->ok ? 'Connected to Site Guardian.' : (string) $result->message,
+					),
+				);
+			}
 		);
 	}
 
 	/**
-	 * Run a rotate.
+	 * Run a locked rotate.
 	 *
 	 * @param callable $rotator      Returns a Result.
 	 * @param callable $is_connected Returns bool.
-	 * @return array{status:int,body:array{connected:bool,message:string}}
+	 * @return array{status:int,body:array<string,mixed>}
 	 */
 	public static function rotate_response( callable $rotator, callable $is_connected ): array {
-		/** @var Result $result */
-		$result = $rotator();
-		return array(
-			'status' => 200,
-			'body'   => array(
-				'connected' => (bool) $is_connected(),
-				'message'   => $result->ok ? 'Credential rotated.' : (string) $result->message,
-			),
+		return self::locked(
+			static function () use ( $rotator, $is_connected ): array {
+				/** @var Result $result */
+				$result = $rotator();
+				if ( $result->ok ) {
+					return array(
+						'status' => 200,
+						'body'   => array(
+							'ok'        => true,
+							'connected' => (bool) $is_connected(),
+							'message'   => 'Credential rotated.',
+						),
+					);
+				}
+				return array(
+					'status' => $result->status >= 400 ? $result->status : 502,
+					'body'   => array(
+						'ok'        => false,
+						'connected' => (bool) $is_connected(),
+						'message'   => (string) $result->message,
+					),
+				);
+			}
 		);
 	}
 
@@ -148,17 +154,81 @@ final class AdminController {
 	}
 
 	/**
-	 * Atomically take the connect lock, reclaiming a stale one once.
+	 * Run $work under the connect lock, or return a 409.
+	 *
+	 * @param callable $work Returns a response array.
+	 * @return array{status:int,body:array<string,mixed>}
 	 */
-	private static function acquire_lock(): bool {
-		if ( add_option( Options::CONNECT_LOCK, time(), '', false ) ) {
-			return true;
+	private static function locked( callable $work ): array {
+		$token = self::acquire_lock();
+		if ( null === $token ) {
+			return array(
+				'status' => 409,
+				'body'   => array(
+					'ok'        => false,
+					'connected' => false,
+					'message'   => 'A connection attempt is already in progress. Please wait a moment.',
+				),
+			);
 		}
-		$taken = (int) get_option( Options::CONNECT_LOCK, 0 );
-		if ( time() - $taken > self::LOCK_TTL ) {
-			delete_option( Options::CONNECT_LOCK );
-			return (bool) add_option( Options::CONNECT_LOCK, time(), '', false );
+		try {
+			return $work();
+		} finally {
+			self::delete_lock_if( $token );
 		}
-		return false;
+	}
+
+	/**
+	 * Take the lock with an atomic INSERT IGNORE, reclaiming a stale one once.
+	 *
+	 * @return string|null Owner token, or null when not acquired.
+	 */
+	private static function acquire_lock(): ?string {
+		global $wpdb;
+		$token = time() . ':' . bin2hex( random_bytes( 16 ) );
+
+		if ( self::insert_lock( $token ) ) {
+			return $token;
+		}
+
+		$observed = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", Options::CONNECT_LOCK ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		if ( is_string( $observed ) && time() - (int) $observed > self::LOCK_TTL ) {
+			self::delete_lock_if( $observed );
+			if ( self::insert_lock( $token ) ) {
+				return $token;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Atomic insert; true only when this call created the row.
+	 *
+	 * @param string $token Owner token.
+	 */
+	private static function insert_lock( string $token ): bool {
+		global $wpdb;
+		$rows = $wpdb->query( $wpdb->prepare( "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')", Options::CONNECT_LOCK, $token ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		self::flush_lock_cache();
+		return 1 === $rows;
+	}
+
+	/**
+	 * Compare-and-delete: remove the lock only if it still holds $value.
+	 *
+	 * @param string $value Expected lock value.
+	 */
+	private static function delete_lock_if( string $value ): void {
+		global $wpdb;
+		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s", Options::CONNECT_LOCK, $value ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		self::flush_lock_cache();
+	}
+
+	/**
+	 * Keep the object cache from serving a stale lock.
+	 */
+	private static function flush_lock_cache(): void {
+		wp_cache_delete( Options::CONNECT_LOCK, 'options' );
+		wp_cache_delete( 'alloptions', 'options' );
 	}
 }
