@@ -115,7 +115,6 @@ final class AdminControllerTest extends TestCase {
 		$this->opts[ Options::WEBSITE_ID ]  = 'web-1';
 		$this->opts[ Options::LAST_ERROR ]  = 'oops';
 		$this->opts[ Options::CREDENTIAL ]  = 'secret-blob';
-		Functions\when( 'defined' )->alias( fn( $n ) => \defined( $n ) );
 		$body = AdminController::status_body( true );
 		$this->assertSame( array( 'connected', 'website_id', 'core_url', 'last_error' ), array_keys( $body ) );
 		$this->assertTrue( $body['connected'] );
