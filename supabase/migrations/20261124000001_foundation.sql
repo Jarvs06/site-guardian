@@ -222,6 +222,15 @@ begin
     where website_id = p_website_id
     for update;
 
+  -- Re-check under the lock: a concurrent call with the same key may have
+  -- committed while we waited, in which case replay its row.
+  if p_idempotency_key is not null then
+    select * into v_existing from credit_transactions where idempotency_key = p_idempotency_key;
+    if found then
+      return v_existing;
+    end if;
+  end if;
+
   v_new_balance := v_balance + p_amount;
 
   if v_new_balance < 0 then
@@ -334,7 +343,7 @@ create trigger trg_remote_config_updated_at
 insert into remote_config (key, value, description) values
   ('maintenance_mode', 'false'::jsonb,
     'When true, the plugin shows a maintenance banner and disables AI actions.'),
-  ('min_plugin_version', '"1.2.1"'::jsonb,
+  ('min_plugin_version', '"0.1.0"'::jsonb,
     'Plugin versions older than this show an update-required notice.'),
   ('scan_limits', '{"link_check_max_urls": 2000, "browser_check_max_pages": 30}'::jsonb,
     'Sitewide default scan limits; per-plan limits in plans.limits take precedence.'),

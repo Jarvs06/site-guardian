@@ -91,6 +91,29 @@ describe("foundation schema", () => {
     expect(bal).toEqual({ balance: 5 });
   });
 
+  it("idempotent replay (sequential and concurrent) applies once and returns the same row", async () => {
+    const planId = await freePlanId();
+    const { data: site } = await service.from("websites").insert(websiteRow(planId, `https://${randomUUID()}.example`)).select("id").single();
+    const id = (site as { id: string }).id;
+    const call = (key: string) => service.rpc("sg_apply_credit_transaction", {
+      p_website_id: id, p_type: "grant", p_amount: 3, p_description: "g", p_idempotency_key: key,
+    });
+    const k1 = randomUUID();
+    const a = await call(k1);
+    const b = await call(k1);
+    expect(a.error).toBeNull();
+    expect(b.error).toBeNull();
+    expect((b.data as { id: string }).id).toBe((a.data as { id: string }).id);
+
+    const k2 = randomUUID();
+    const results = await Promise.all(Array.from({ length: 4 }, () => call(k2)));
+    for (const r of results) expect(r.error).toBeNull();
+    expect(new Set(results.map((r) => (r.data as { id: string }).id)).size).toBe(1);
+
+    const { data: bal } = await service.from("credit_balances").select("balance").eq("website_id", id).single();
+    expect(bal).toEqual({ balance: 6 });
+  });
+
   it("registration_challenges and rate_limits accept service-role writes", async () => {
     const ch = await service.from("registration_challenges").insert({
       installation_id: randomUUID(), origin: "https://c.example", site_url: "https://c.example",
