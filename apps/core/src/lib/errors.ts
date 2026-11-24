@@ -29,8 +29,8 @@ export class ApiError extends Error {
   static verificationFailed(message = "Verification failed.") {
     return new ApiError(400, "verification_failed", message);
   }
-  static aiUnavailable(message = "The assistant is unavailable right now. Please try again later.") {
-    return new ApiError(503, "ai_unavailable", message);
+  static aiUnavailable(message = "I'm having trouble answering right now. Please try again in a moment.") {
+    return new ApiError(502, "ai_unavailable", message);
   }
   static internal(message = "Something went wrong. Please try again.") {
     return new ApiError(500, "internal", message);

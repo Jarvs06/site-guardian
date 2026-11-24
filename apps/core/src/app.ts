@@ -10,6 +10,7 @@ import type { AiClient } from "./lib/ai.js";
 import { createLogger, type Logger } from "./lib/logger.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
 import { requestId } from "./middleware/request-id.js";
+import { chatRouter } from "./routes/chat.js";
 import { configRouter } from "./routes/config.js";
 import { healthRouter } from "./routes/health.js";
 import { sitesRouter } from "./routes/sites.js";
@@ -43,6 +44,7 @@ export function createApp(deps: AppDeps): express.Express {
   app.use("/api/v1", healthRouter());
   app.use("/api/v1", sitesRouter(deps));
   app.use("/api/v1", configRouter(deps));
+  app.use("/api/v1", chatRouter(deps));
   deps.extraRoutes?.(app);
 
   app.use(notFoundHandler);

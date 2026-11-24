@@ -1,8 +1,7 @@
 import { safeFetch } from "@sg/shared";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
-import { ApiError } from "./lib/errors.js";
-import type { AiClient } from "./lib/ai.js";
+import { createAnthropicAi, type AiClient } from "./lib/ai.js";
 import { createPool } from "./lib/db.js";
 import { createLogger } from "./lib/logger.js";
 import { createSupabase } from "./lib/supabase.js";
@@ -10,10 +9,9 @@ import { createSupabase } from "./lib/supabase.js";
 const config = loadConfig(process.env);
 const logger = createLogger(config.LOG_LEVEL);
 
-// Placeholder until the Anthropic-backed client lands (Task 7).
-const ai: AiClient = {
-  reply: () => Promise.reject(ApiError.aiUnavailable()),
-};
+const ai: AiClient = config.AI_STUB
+  ? { reply: () => Promise.resolve("Hi! (stub reply)") }
+  : createAnthropicAi(config, undefined, logger);
 
 const app = createApp({
   config,
