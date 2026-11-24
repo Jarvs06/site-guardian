@@ -29,7 +29,7 @@ export function createApp(deps: AppDeps): express.Express {
   const logger = deps.logger ?? createLogger(config.LOG_LEVEL);
   const app = express();
   app.disable("x-powered-by");
-  app.set("trust proxy", 1);
+  app.set("trust proxy", config.TRUST_PROXY);
 
   app.use(requestId);
   app.use(pinoHttp({ logger, genReqId: (req) => req.id, quietReqLogger: true }));

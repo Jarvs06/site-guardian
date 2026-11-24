@@ -16,6 +16,7 @@ describe("loadConfig", () => {
     expect(c.ANTHROPIC_MODEL).toBe("claude-opus-5-5");
     expect(c.ALLOW_LOCAL_SITES).toBe(false);
     expect(c.AI_STUB).toBe(false);
+    expect(c.TRUST_PROXY).toBe(0);
     expect(c.CORS_ALLOWED_ORIGINS).toEqual([]);
   });
 
@@ -49,5 +50,12 @@ describe("loadConfig", () => {
     const { DATABASE_URL: _omit, ...rest } = valid;
     void _omit;
     expect(() => loadConfig(rest)).toThrow();
+  });
+
+  it("parses TRUST_PROXY and rejects non-integers", () => {
+    expect(loadConfig({ ...valid, TRUST_PROXY: "2" }).TRUST_PROXY).toBe(2);
+    expect(() => loadConfig({ ...valid, TRUST_PROXY: "1.5" })).toThrow();
+    expect(() => loadConfig({ ...valid, TRUST_PROXY: "-1" })).toThrow();
+    expect(() => loadConfig({ ...valid, TRUST_PROXY: "abc" })).toThrow();
   });
 });

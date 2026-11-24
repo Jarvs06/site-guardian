@@ -18,14 +18,15 @@ const config: Config = {
   ANTHROPIC_MODEL: "claude-opus-5-5",
   ALLOW_LOCAL_SITES: false,
   AI_STUB: false,
+  TRUST_PROXY: 0,
   CORS_ALLOWED_ORIGINS: ["https://allowed.test"],
   NODE_ENV: "test",
   LOG_LEVEL: "silent",
 };
 
-function build(extra?: (app: express.Express) => void) {
+function build(extra?: (app: express.Express) => void, overrides: Partial<Config> = {}) {
   return createApp({
-    config,
+    config: { ...config, ...overrides },
     supabase: {} as SupabaseClient,
     pool: {} as pg.Pool,
     ai: { reply: () => Promise.reject(new Error("unused")) },
@@ -111,5 +112,13 @@ describe("app skeleton", () => {
     expect(evil.headers["access-control-allow-origin"]).toBeUndefined();
     const ok = await request(build()).get("/api/v1/health").set("Origin", "https://allowed.test");
     expect(ok.headers["access-control-allow-origin"]).toBe("https://allowed.test");
+  });
+
+  it("trust proxy: ignores X-Forwarded-For at 0 hops, honours it at 1", async () => {
+    const echo = (a: express.Express) => a.get("/api/v1/ip", (req, res) => res.json({ ip: req.ip }));
+    const direct = await request(build(echo, { TRUST_PROXY: 0 })).get("/api/v1/ip").set("X-Forwarded-For", "1.2.3.4");
+    expect(direct.body.ip).not.toBe("1.2.3.4");
+    const proxied = await request(build(echo, { TRUST_PROXY: 1 })).get("/api/v1/ip").set("X-Forwarded-For", "1.2.3.4");
+    expect(proxied.body.ip).toBe("1.2.3.4");
   });
 });

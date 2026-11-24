@@ -15,6 +15,7 @@ const Env = z.object({
   ANTHROPIC_MODEL: z.string().min(1).default("claude-opus-5-5"),
   ALLOW_LOCAL_SITES: bool,
   AI_STUB: bool,
+  TRUST_PROXY: z.coerce.number().int().min(0).default(0),
   CORS_ALLOWED_ORIGINS: z
     .string()
     .optional()
