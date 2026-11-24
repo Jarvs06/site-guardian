@@ -8,3 +8,4 @@ plugin/vendor
 .superpowers/
 *.tsbuildinfo
 .DS_Store
+plugin/.phpunit.cache
