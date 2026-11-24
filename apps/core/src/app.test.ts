@@ -3,7 +3,7 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { ErrorBody, safeFetch } from "@sg/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type pg from "pg";
+import pg from "pg";
 import { createApp } from "./app.js";
 import type { Config } from "./config.js";
 import { ApiError } from "./lib/errors.js";
@@ -28,7 +28,8 @@ function build(extra?: (app: express.Express) => void, overrides: Partial<Config
   return createApp({
     config: { ...config, ...overrides },
     supabase: {} as SupabaseClient,
-    pool: {} as pg.Pool,
+    // Never connected: routers only need a real Pool instance at construction time.
+    pool: new pg.Pool({ connectionString: "postgres://unused@127.0.0.1:1/none" }),
     ai: { reply: () => Promise.reject(new Error("unused")) },
     fetcher: safeFetch,
     extraRoutes: extra,

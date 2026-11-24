@@ -27,7 +27,7 @@ export class ApiError extends Error {
     return new ApiError(429, "rate_limited", message, { "Retry-After": String(Math.max(1, Math.ceil(retryAfterSec))) });
   }
   static verificationFailed(message = "Verification failed.") {
-    return new ApiError(422, "verification_failed", message);
+    return new ApiError(400, "verification_failed", message);
   }
   static aiUnavailable(message = "The assistant is unavailable right now. Please try again later.") {
     return new ApiError(503, "ai_unavailable", message);
