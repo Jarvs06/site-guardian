@@ -22,6 +22,7 @@ final class Options {
 	public const CAPABILITY        = 'site_guardian_capability';
 	public const LAST_ERROR        = 'site_guardian_last_error';
 	public const PAGE_ID           = 'site_guardian_page_id';
+	public const CONNECT_LOCK      = 'site_guardian_connect_lock';
 
 	/**
 	 * Every option name.
@@ -38,6 +39,7 @@ final class Options {
 			self::CAPABILITY,
 			self::LAST_ERROR,
 			self::PAGE_ID,
+			self::CONNECT_LOCK,
 		);
 	}
 }

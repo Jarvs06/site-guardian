@@ -26,15 +26,22 @@ final class Plugin {
 		}
 
 		\SiteGuardian\Rest\VerifyController::register();
+		\SiteGuardian\Rest\AdminController::register();
+		\SiteGuardian\Admin\SettingsPage::register();
+		\SiteGuardian\Admin\Notices::register();
 
 		register_activation_hook( $file, array( self::class, 'activate' ) );
 		register_deactivation_hook( $file, array( self::class, 'deactivate' ) );
 	}
 
 	/**
-	 * Activation placeholder; later tasks fill this in.
+	 * Activation: create the capability option with autoload off.
+	 *
+	 * The Settings API (register_setting) never controls autoload, so the
+	 * option is created here; later saves via update_option keep its autoload flag.
 	 */
 	public static function activate(): void {
+		add_option( \SiteGuardian\Support\Options::CAPABILITY, 'manage_options', '', false );
 	}
 
 	/**
