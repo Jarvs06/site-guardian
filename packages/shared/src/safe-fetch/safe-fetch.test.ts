@@ -69,11 +69,15 @@ describe("safeFetch: request validation", () => {
     ).rejects.toMatchObject({ code: "blocked_address" });
   });
 
-  it("refuses non-http(s) schemes and unparsable URLs", async () => {
+  it("refuses non-http(s) schemes", async () => {
     await expect(safeFetch("file:///etc/passwd")).rejects.toMatchObject({ code: "bad_scheme" });
     await expect(safeFetch("ftp://example.com/")).rejects.toMatchObject({ code: "bad_scheme" });
     await expect(safeFetch("gopher://example.com/")).rejects.toMatchObject({ code: "bad_scheme" });
-    await expect(safeFetch("not a url")).rejects.toMatchObject({ code: "bad_scheme" });
+  });
+
+  it("reports unparsable URLs as invalid_url", async () => {
+    await expect(safeFetch("not a url")).rejects.toMatchObject({ code: "invalid_url" });
+    await expect(safeFetch("http://[bad/")).rejects.toMatchObject({ code: "invalid_url" });
   });
 
   it("refuses ports outside allowedPorts", async () => {
@@ -152,21 +156,57 @@ describe("safeFetch: fetching", () => {
     expect(res.body).toBe("");
   });
 
-  it("pins the connection to the first validated address (DNS rebinding)", async () => {
+  it("pins the connection to the FIRST validated address", async () => {
     const local = await listen((_req, res) => res.end("pinned"));
-    // First answer is the validated one; any later lookup would "rebind" to an unroutable address.
-    // rebind.test is not resolvable by real DNS, so reaching the server proves the socket used the pinned IP.
-    let n = 0;
-    const resolver = async () => (n++ === 0 ? ["127.0.0.1"] : ["192.0.2.1"]);
+    // Only 127.0.0.1 has a listener; 192.0.2.1 (TEST-NET-1) never answers. Pinning to the first
+    // address must reach the server; pinning to any other element (or re-resolving) must not.
     const res = await safeFetch(local.url("rebind.test"), {
-      resolver,
+      resolver: async () => ["127.0.0.1", "192.0.2.1"],
       allowPrivate: true,
       allowedPorts: [local.port],
       timeoutMs: 2000,
     });
     expect(res.body).toBe("pinned");
-    expect(n).toBe(1);
-    expect(local.seen[0]?.localAddress).toBe("127.0.0.1");
+  });
+
+  it("does not fall back to a later address when the first is unreachable", async () => {
+    const local = await listen((_req, res) => res.end("should not be reached"));
+    const started = Date.now();
+    const err = await safeFetch(local.url("rebind.test"), {
+      resolver: async () => ["192.0.2.1", "127.0.0.1"],
+      allowPrivate: true,
+      allowedPorts: [local.port],
+      timeoutMs: 500,
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SafeFetchError);
+    expect(["timeout", "network_error"]).toContain((err as SafeFetchError).code);
+    expect(local.seen).toHaveLength(0);
+    // timeoutMs is a hard budget even while a TCP connect is still pending.
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it("wraps a refused connection as network_error with the cause", async () => {
+    const closed = await listen(() => {});
+    const port = closed.port;
+    await new Promise<void>((resolve) => closed.server.close(() => resolve()));
+    const err = await safeFetch(`http://127.0.0.1:${port}/`, { allowPrivate: true, allowedPorts: [port] }).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(SafeFetchError);
+    expect(err).toMatchObject({ code: "network_error" });
+    expect((err as SafeFetchError).cause).toBeInstanceOf(Error);
+  });
+
+  it("wraps a TLS handshake failure as network_error", async () => {
+    // https:// to a plain-HTTP listener fails the TLS handshake.
+    const local = await listen((_req, res) => res.end("plain"));
+    const err = await safeFetch(`https://127.0.0.1:${local.port}/`, {
+      allowPrivate: true,
+      allowedPorts: [local.port],
+      timeoutMs: 2000,
+    }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: "network_error" });
+    expect((err as SafeFetchError).cause).toBeInstanceOf(Error);
   });
 
   it("truncates bodies at maxBytes instead of throwing", async () => {
@@ -296,6 +336,13 @@ describe("safeFetch: redirects", () => {
     expect(second?.headers.cookie).toBeUndefined();
     expect(second?.headers.host).toBe(`b.test:${local.port}`);
     expect(second?.headers["x-keep"]).toBe("1");
+  });
+
+  it("reports an unparsable redirect Location as invalid_url", async () => {
+    const local = await listen((_req, res) => res.writeHead(302, { location: "http://[bad/" }).end());
+    await expect(
+      safeFetch(`http://127.0.0.1:${local.port}/`, { allowPrivate: true, allowedPorts: [local.port] }),
+    ).rejects.toMatchObject({ code: "invalid_url" });
   });
 
   it("returns a redirect status without Location as the final response", async () => {

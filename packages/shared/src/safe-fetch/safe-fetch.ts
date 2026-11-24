@@ -34,7 +34,11 @@ export type SafeFetchErrorCode =
   | "bad_port"
   | "too_many_redirects"
   | "timeout"
-  | "dns_failed";
+  | "dns_failed"
+  /** Connection refused/reset, TLS or certificate failure, malformed response, etc. */
+  | "network_error"
+  /** Unparsable input URL or redirect Location. */
+  | "invalid_url";
 
 export class SafeFetchError extends Error {
   override readonly name = "SafeFetchError";
@@ -81,6 +85,9 @@ export async function safeFetchWithPolicy(
     if (controller.signal.aborted) {
       throw new SafeFetchError("timeout", `request exceeded ${timeoutMs}ms`, { cause: err });
     }
+    if (isTransportError(err)) {
+      throw new SafeFetchError("network_error", err instanceof Error ? err.message : "network error", { cause: err });
+    }
     throw err;
   } finally {
     clearTimeout(timer);
@@ -114,6 +121,9 @@ async function run(
     const ip = await validateHop(current, allowedPorts, resolver, isBlocked, signal);
     const target = `${current.protocol}//${current.host}${current.pathname}${current.search}`;
     const agent = new Agent({ connect: { lookup: pinnedLookup(ip) } });
+    // undici does not cancel an in-flight TCP/TLS connect on abort; destroying the agent does.
+    const onAbort = () => void agent.destroy().catch(() => {});
+    signal.addEventListener("abort", onAbort, { once: true });
     try {
       const res = await request(target, { dispatcher: agent, method, headers: hopHeaders, signal });
       // Discarding a body early (redirect, truncation) destroys the stream; that is not an error.
@@ -130,16 +140,27 @@ async function run(
       const { body, truncated } = await readBody(res.body, maxBytes);
       return { status: res.statusCode, finalUrl: target, headers: flattenHeaders(res.headers), body, truncated };
     } finally {
-      await agent.destroy();
+      signal.removeEventListener("abort", onAbort);
+      await agent.destroy().catch(() => {});
     }
   }
+}
+
+/**
+ * Node system errors (ECONNREFUSED, ECONNRESET, ...), TLS/certificate errors and
+ * undici errors all carry a string `code`. Caller misuse (UND_ERR_INVALID_ARG,
+ * e.g. a forbidden header) and plain programming errors are rethrown as-is.
+ */
+function isTransportError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null || !("code" in err)) return false;
+  return typeof err.code === "string" && err.code !== "UND_ERR_INVALID_ARG";
 }
 
 function parseUrl(input: string, what: string, base?: URL): URL {
   try {
     return new URL(input, base);
   } catch (err) {
-    throw new SafeFetchError("bad_scheme", what, { cause: err });
+    throw new SafeFetchError("invalid_url", what, { cause: err });
   }
 }
 
