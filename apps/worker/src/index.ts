@@ -1,2 +1,1 @@
-console.log("worker idle — no jobs in Stage 1");
-process.exit(0);
+export { startWorker, type WorkerConfig, type WorkerHandle } from "./worker.js";
