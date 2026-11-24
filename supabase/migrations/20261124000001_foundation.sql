@@ -89,7 +89,7 @@ create table websites (
   site_url           text not null,
   site_name          text,
   credential_hash    text not null,
-  credential_prefix  text not null,              -- first 8 chars, shown in UI for identification
+  credential_prefix  text not null,              -- first 12 chars ("sgat_" + 7 hex), shown in UI for identification
   credential_rotated_at timestamptz,
   status             text not null default 'active' check (status in ('active', 'suspended', 'revoked')),
   wp_version         text,
@@ -103,6 +103,8 @@ create table websites (
 create index idx_websites_owner_user_id on websites(owner_user_id);
 create index idx_websites_site_url      on websites(site_url);
 create index idx_websites_installation_id on websites(installation_id);
+-- Every authenticated Core request looks a site up by its credential hash.
+create unique index uq_websites_credential_hash on websites(credential_hash);
 
 create trigger trg_websites_updated_at
   before update on websites

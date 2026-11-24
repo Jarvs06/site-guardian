@@ -55,7 +55,8 @@ function stubFetcher(respond: (url: string) => SafeFetchResponse | Error) {
   const fetcher = ((url: string, opts?: SafeFetchOptions) => {
     calls.push({ url, opts });
     const r = respond(url);
-    return r instanceof Error ? Promise.reject(r) : Promise.resolve(r);
+    if (r instanceof Error) return Promise.reject(r);
+    return Promise.resolve({ ...r, finalUrl: r.finalUrl || url });
   }) as Fetcher;
   return { fetcher, calls };
 }
@@ -248,6 +249,62 @@ describe("sites: register/complete", () => {
       `${origin}/wp-json/site-guardian/v1/verify/${st.body.challenge_id}`,
       `${origin}/?site_guardian_verify=${st.body.challenge_id}`,
     ]);
+  });
+
+  it("correct body but redirected to another host -> 400 verification_failed, audit redirected_off_origin", async () => {
+    const origin = newOrigin();
+    let value = "";
+    const { fetcher, calls } = stubFetcher(() => ({
+      ...ok(JSON.stringify({ challenge: value })),
+      finalUrl: "https://forwarder.example.net/anything",
+    }));
+    const app = build({ fetcher });
+    const st = await start(app, { installation_id: randomUUID(), site_url: origin });
+    value = st.body.challenge;
+    const res = await complete(app, st.body.challenge_id);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("verification_failed");
+    expect(calls).toHaveLength(2);
+    expect((await pool.query("select 1 from websites where origin = $1", [origin])).rowCount).toBe(0);
+    const audits = await pool.query(
+      "select metadata from audit_logs where action = 'site.verification_failed' and metadata->>'origin' = $1",
+      [origin],
+    );
+    expect(audits.rows.map((r) => r.metadata.reason)).toEqual(["redirected_off_origin"]);
+  });
+
+  it.each([
+    ["www toggle", (h: string) => `https://www.${h}/x`],
+    ["different port", (h: string) => `https://${h}:8443/x`],
+    ["subdomain-suffix trick", (h: string) => `https://${h}.evil.example.net/x`],
+  ])("redirect off origin (%s) is rejected", async (_name, final) => {
+    const origin = newOrigin();
+    const host = new URL(origin).hostname;
+    let value = "";
+    const { fetcher } = stubFetcher(() => ({ ...ok(JSON.stringify({ challenge: value })), finalUrl: final(host) }));
+    const app = build({ fetcher });
+    const st = await start(app, { installation_id: randomUUID(), site_url: origin });
+    value = st.body.challenge;
+    const res = await complete(app, st.body.challenge_id);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("verification_failed");
+  });
+
+  it("same-host http -> https redirect is accepted", async () => {
+    const httpsOrigin = newOrigin();
+    const host = new URL(httpsOrigin).hostname;
+    const origin = `http://${host}`;
+    createdOrigins.push(origin);
+    let value = "";
+    const { fetcher } = stubFetcher((url) => ({
+      ...ok(JSON.stringify({ challenge: value })),
+      finalUrl: url.replace("http://", "https://"),
+    }));
+    const app = build({ fetcher });
+    const st = await start(app, { installation_id: randomUUID(), site_url: origin });
+    value = st.body.challenge;
+    const res = await complete(app, st.body.challenge_id);
+    expect(res.status).toBe(201);
   });
 
   it("replay: a second complete with the same challenge_id -> 400 verification_failed", async () => {

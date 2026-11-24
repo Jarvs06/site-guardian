@@ -21,7 +21,7 @@ const CHALLENGE_TTL_MS = 10 * 60_000;
 const HOUR = 3600;
 const LOCAL_SUFFIXES = [".localhost", ".local", ".internal", ".lan"];
 
-type VerifyFailure = "challenge_invalid" | "unreachable" | "mismatch";
+type VerifyFailure = "challenge_invalid" | "unreachable" | "mismatch" | "redirected_off_origin";
 
 interface ChallengeRow {
   id: string;
@@ -64,6 +64,28 @@ function siteOrigin(siteUrl: string, allowLocal: boolean): string {
   return origin;
 }
 
+const DEFAULT_PORTS: Record<string, string> = { "http:": "80", "https:": "443" };
+
+/**
+ * True when a (possibly redirected) final URL is still on the origin: exact same
+ * hostname; http→https on that host is allowed; the final port must be the
+ * origin's port or the default port for the final scheme.
+ */
+function sameSite(finalUrl: string, origin: string): boolean {
+  let f: URL;
+  try {
+    f = new URL(finalUrl);
+  } catch {
+    return false;
+  }
+  const o = new URL(origin);
+  if (f.hostname !== o.hostname) return false;
+  if (f.protocol !== "http:" && f.protocol !== "https:") return false;
+  const finalPort = f.port || DEFAULT_PORTS[f.protocol];
+  const originPort = o.port || DEFAULT_PORTS[o.protocol];
+  return finalPort === originPort || finalPort === DEFAULT_PORTS[f.protocol];
+}
+
 function verificationFailed(reason: VerifyFailure): ApiError {
   switch (reason) {
     case "challenge_invalid":
@@ -71,6 +93,10 @@ function verificationFailed(reason: VerifyFailure): ApiError {
     case "unreachable":
       return ApiError.verificationFailed(
         "Your site couldn't be reached to verify ownership. Make sure it is publicly accessible, then start again.",
+      );
+    case "redirected_off_origin":
+      return ApiError.verificationFailed(
+        "Your site redirected the verification request to a different address. Use your site's exact address, then start again.",
       );
     case "mismatch":
       return ApiError.verificationFailed(
@@ -131,10 +157,16 @@ export function sitesRouter(deps: AppDeps): Router {
       `${ch.origin}/?site_guardian_verify=${ch.id}`,
     ];
     let reached = false;
+    let offOrigin = false;
     for (const url of urls) {
       try {
         const resp = await deps.fetcher(url, { timeoutMs: 10_000, maxBytes: 4096, allowPrivate: allowLocal, allowedPorts });
         reached = true;
+        // Proof must come from the origin itself, not wherever it redirects to.
+        if (!sameSite(resp.finalUrl, ch.origin)) {
+          offOrigin = true;
+          continue;
+        }
         if (resp.status !== 200 || resp.truncated) continue;
         let value: unknown;
         try {
@@ -147,6 +179,7 @@ export function sitesRouter(deps: AppDeps): Router {
         if (!(err instanceof SafeFetchError)) throw err;
       }
     }
+    if (offOrigin) return "redirected_off_origin";
     return reached ? "mismatch" : "unreachable";
   }
 

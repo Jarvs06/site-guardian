@@ -23,7 +23,7 @@ async function freePlanId(): Promise<string> {
 function websiteRow(planId: string, origin: string) {
   return {
     installation_id: randomUUID(), plan_id: planId, site_url: origin, origin,
-    credential_hash: "h", credential_prefix: "sgat_abc",
+    credential_hash: randomUUID(), credential_prefix: "sgat_abc1234",
   };
 }
 
@@ -72,6 +72,18 @@ describe("foundation schema", () => {
     expect((await service.from("websites").insert(websiteRow(planId, origin))).error).not.toBeNull();
     const sameInstall = { ...websiteRow(planId, `https://${randomUUID()}.example`), installation_id: first.installation_id };
     expect((await service.from("websites").insert(sameInstall)).error).toBeNull();
+  });
+
+  it("credential_hash is unique-indexed (auth lookups never scan; duplicates rejected)", async () => {
+    const idx = await db.query(
+      "select indexdef from pg_indexes where schemaname='public' and tablename='websites' and indexdef ilike '%unique%(credential_hash)%'",
+    );
+    expect(idx.rowCount).toBe(1);
+    const planId = await freePlanId();
+    const a = websiteRow(planId, `https://${randomUUID()}.example`);
+    const b = { ...websiteRow(planId, `https://${randomUUID()}.example`), credential_hash: a.credential_hash };
+    expect((await service.from("websites").insert(a)).error).toBeNull();
+    expect((await service.from("websites").insert(b)).error?.code).toBe("23505");
   });
 
   it("credit transactions apply atomically and never go negative", async () => {
