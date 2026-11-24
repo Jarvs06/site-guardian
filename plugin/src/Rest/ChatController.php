@@ -60,7 +60,7 @@ final class ChatController {
 						'required'          => true,
 						'type'              => 'string',
 						'validate_callback' => array( self::class, 'validate_message' ),
-						'sanitize_callback' => 'wp_unslash',
+						'sanitize_callback' => array( self::class, 'sanitize_message' ),
 					),
 					'conversation_id' => array(
 						'required'          => false,
@@ -89,7 +89,16 @@ final class ChatController {
 	}
 
 	/**
-	 * Validate message (1..4000 chars).
+	 * Cast only; REST already unslashes input, so backslashes must survive.
+	 *
+	 * @param mixed $value Value.
+	 */
+	public static function sanitize_message( $value ): string {
+		return is_scalar( $value ) ? (string) $value : '';
+	}
+
+	/**
+	 * Validate message (1..4000 chars, not blank).
 	 *
 	 * @param mixed $value Value.
 	 */
@@ -98,7 +107,7 @@ final class ChatController {
 			return false;
 		}
 		$len = mb_strlen( $value );
-		return $len >= 1 && $len <= 4000;
+		return $len >= 1 && $len <= 4000 && '' !== trim( $value );
 	}
 
 	/**
@@ -185,14 +194,18 @@ final class ChatController {
 			$message = "Couldn't reach Site Guardian. Please try again.";
 		}
 
+		$body = array(
+			'error' => array(
+				'code'    => $code,
+				'message' => $message,
+			),
+		);
+		if ( $result instanceof Result && null !== $result->request_id ) {
+			$body['request_id'] = $result->request_id;
+		}
 		return array(
 			'status' => $status,
-			'body'   => array(
-				'error' => array(
-					'code'    => $code,
-					'message' => $message,
-				),
-			),
+			'body'   => $body,
 		);
 	}
 }

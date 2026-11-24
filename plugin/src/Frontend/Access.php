@@ -27,6 +27,22 @@ final class Access {
 	}
 
 	/**
+	 * Header sender seam (tests).
+	 *
+	 * @var callable|null
+	 */
+	private static $header_sender = null;
+
+	/**
+	 * Replace the header sender (tests).
+	 *
+	 * @param callable|null $sender fn(string $line): void.
+	 */
+	public static function set_header_sender( ?callable $sender ): void {
+		self::$header_sender = $sender;
+	}
+
+	/**
 	 * Hook the gate.
 	 */
 	public static function register(): void {
@@ -100,7 +116,11 @@ final class Access {
 		}
 		if ( 'allow' === $decision ) {
 			foreach ( self::headers() as $name => $value ) {
-				header( $name . ': ' . $value );
+				if ( null !== self::$header_sender ) {
+					( self::$header_sender )( $name . ': ' . $value );
+				} else {
+					header( $name . ': ' . $value );
+				}
 			}
 			nocache_headers();
 		}

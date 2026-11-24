@@ -85,7 +85,8 @@ final class Client {
 		$error = $decoded['error'] ?? null;
 		if ( is_array( $error ) && isset( $error['code'] ) && is_string( $error['code'] ) ) {
 			$message = isset( $error['message'] ) && is_string( $error['message'] ) ? $error['message'] : 'Site Guardian reported an error.';
-			return Result::failure( $status, $error['code'], $message );
+			$rid     = isset( $decoded['request_id'] ) && is_string( $decoded['request_id'] ) ? $decoded['request_id'] : null;
+			return Result::failure( $status, $error['code'], $message, $rid );
 		}
 		return Result::failure( $status, 'bad_response', 'Site Guardian returned an unexpected response.' );
 	}

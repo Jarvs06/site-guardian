@@ -22,13 +22,15 @@ final class Result {
 	 * @param array<string,mixed>  $data       Decoded JSON body on success.
 	 * @param string|null          $error_code Error code on failure.
 	 * @param string|null          $message    Human-readable error message.
+	 * @param string|null          $request_id Core request id, when known.
 	 */
 	public function __construct(
 		public readonly bool $ok,
 		public readonly int $status,
 		public readonly array $data,
 		public readonly ?string $error_code,
-		public readonly ?string $message
+		public readonly ?string $message,
+		public readonly ?string $request_id = null
 	) {}
 
 	/**
@@ -47,8 +49,9 @@ final class Result {
 	 * @param int    $status     HTTP status.
 	 * @param string $error_code Error code.
 	 * @param string $message    Message.
+	 * @param string|null $request_id Core request id.
 	 */
-	public static function failure( int $status, string $error_code, string $message ): self {
-		return new self( false, $status, array(), $error_code, $message );
+	public static function failure( int $status, string $error_code, string $message, ?string $request_id = null ): self {
+		return new self( false, $status, array(), $error_code, $message, $request_id );
 	}
 }

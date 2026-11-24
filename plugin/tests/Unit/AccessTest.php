@@ -18,6 +18,7 @@ final class AccessTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		Access::set_header_sender( null );
 		Monkey\tearDown();
 		parent::tearDown();
 	}
@@ -79,7 +80,31 @@ final class AccessTest extends TestCase {
 		Functions\expect( 'nocache_headers' )->once();
 		Functions\expect( 'auth_redirect' )->never();
 		Functions\expect( 'status_header' )->never();
+		$lines = array();
+		Access::set_header_sender( function ( string $l ) use ( &$lines ) {
+			$lines[] = $l;
+		} );
 		Access::gate();
-		$this->addToAssertionCount( 1 );
+		$this->assertSame(
+			array(
+				"Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'",
+				'X-Robots-Tag: noindex, nofollow',
+				'X-Content-Type-Options: nosniff',
+				'Referrer-Policy: same-origin',
+			),
+			$lines
+		);
+	}
+
+	public function test_gate_skip_emits_no_headers(): void {
+		Functions\when( 'is_page' )->justReturn( false );
+		Functions\when( 'is_user_logged_in' )->justReturn( true );
+		Functions\when( 'current_user_can' )->justReturn( true );
+		$lines = array();
+		Access::set_header_sender( function ( string $l ) use ( &$lines ) {
+			$lines[] = $l;
+		} );
+		Access::gate();
+		$this->assertSame( array(), $lines );
 	}
 }

@@ -111,6 +111,27 @@ final class ChatControllerTest extends TestCase {
 		$this->assertSame( 'not_connected', $out['body']['error']['code'] );
 	}
 
+	public function test_backslashes_survive_sanitize_and_forward(): void {
+		$this->sender( Result::success( 200, array( 'reply' => 'x', 'conversation_id' => self::CID ) ) );
+		foreach ( array( 'C:\\wp\\logs', '\\d+' ) as $m ) {
+			$this->assertSame( $m, ChatController::sanitize_message( $m ) );
+			ChatController::respond( $m, null, 3 );
+		}
+		$this->assertSame( 'C:\\wp\\logs', $this->sent[0]['message'] );
+		$this->assertSame( '\\d+', $this->sent[1]['message'] );
+	}
+
+	public function test_blank_message_rejected(): void {
+		$this->assertFalse( ChatController::validate_message( "  \n\t " ) );
+	}
+
+	public function test_core_error_keeps_request_id(): void {
+		$this->sender( Result::failure( 429, 'rate_limited', 'Slow down', 'req-1' ) );
+		$out = ChatController::respond( 'x', null, 3 );
+		$this->assertSame( 429, $out['status'] );
+		$this->assertSame( 'req-1', $out['body']['request_id'] );
+	}
+
 	public function test_validation(): void {
 		$this->assertFalse( ChatController::validate_message( '' ) );
 		$this->assertTrue( ChatController::validate_message( 'a' ) );
