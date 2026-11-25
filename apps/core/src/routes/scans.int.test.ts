@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import pg from "pg";
 import request from "supertest";
 import { afterAll, describe, expect, it } from "vitest";
-import { ErrorBody, SafeFetchError } from "@sg/shared";
+import { ErrorBody, SafeFetchError, ScanResultsResponse, ScanStatus } from "@sg/shared";
 import { createApp } from "../app.js";
 import type { Config } from "../config.js";
 import { generateCredential } from "../lib/credential.js";
@@ -352,5 +352,172 @@ describe("scan ownership", () => {
     const s = await newSite();
     const res = await begin(build(), s, "not-a-uuid");
     expect(res.status).toBe(404);
+  });
+});
+
+const get = (app: App, s: Site, path: string) =>
+  request(app).get(`/api/v1${path}`).set("Authorization", `Bearer ${s.token}`);
+
+async function insertResults(scanId: string, n: number, over: Record<string, unknown> = {}) {
+  await pool.query(
+    `insert into link_results (scan_job_id, kind, url, source, status, robots_index, robots_follow)
+     select $1, $2, 'https://x.example/' || g, 'page', $3, $4, $5 from generate_series(1, $6) g`,
+    [scanId, over.kind ?? "link", over.status ?? "ok", over.robots_index ?? null, over.robots_follow ?? null, n],
+  );
+}
+
+describe("GET /scans/:id/results", () => {
+  it("pages 1,201 rows as 500/500/201 with a string cursor, last next_cursor null", async () => {
+    const s = await newSite();
+    const id = await insertScan(s.id, "completed");
+    await insertResults(id, 1201);
+    const app = build();
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    const sizes: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const res = await get(app, s, `/scans/${id}/results${cursor ? `?cursor=${cursor}` : ""}`);
+      expect(res.status).toBe(200);
+      const body = ScanResultsResponse.parse(res.body);
+      sizes.push(body.items.length);
+      seen.push(...body.items.map((x) => x.id));
+      cursor = body.next_cursor;
+    }
+    expect(sizes).toEqual([500, 500, 201]);
+    expect(cursor).toBeNull();
+    expect(new Set(seen).size).toBe(1201);
+    expect(seen.map(BigInt)).toEqual([...seen.map(BigInt)].sort((a, b) => (a < b ? -1 : 1)));
+  });
+
+  it("honours limit, and rejects limit > 500 or a bad cursor with 400", async () => {
+    const s = await newSite();
+    const id = await insertScan(s.id, "completed");
+    await insertResults(id, 3);
+    const app = build();
+    const ok = await get(app, s, `/scans/${id}/results?limit=2`);
+    expect(ok.body.items).toHaveLength(2);
+    expect(ok.body.next_cursor).toBe(ok.body.items[1].id);
+    expect((await get(app, s, `/scans/${id}/results?limit=9999`)).status).toBe(400);
+    expect((await get(app, s, `/scans/${id}/results?limit=0`)).status).toBe(400);
+    expect((await get(app, s, `/scans/${id}/results?cursor=abc`)).status).toBe(400);
+    expect((await get(app, s, `/scans/${id}/results?cursor=1;drop`)).status).toBe(400);
+  });
+
+  it("404s for another site's scan and malformed ids", async () => {
+    const a = await newSite();
+    const b = await newSite();
+    const id = await insertScan(a.id, "completed");
+    const app = build();
+    expect((await get(app, b, `/scans/${id}/results`)).status).toBe(404);
+    expect((await get(app, a, "/scans/nope/results")).status).toBe(404);
+  });
+});
+
+describe("GET /scans/:id", () => {
+  it("returns counts matching the rows, indexed counting page rows with robots_index=index", async () => {
+    const s = await newSite();
+    const id = await insertScan(s.id, "completed");
+    await insertResults(id, 4, { status: "ok" });
+    await pool.query(
+      `insert into link_results (scan_job_id, kind, url, source, status, robots_index, robots_follow) values
+        ($1, 'page', 'https://p.example/1', 'page', 'ok', 'index', 'follow'),
+        ($1, 'page', 'https://p.example/2', 'page', 'ok', 'index', 'nofollow'),
+        ($1, 'page', 'https://p.example/3', 'page', 'ok', 'noindex', 'follow'),
+        ($1, 'link', 'https://l.example/b', 'page', 'broken', null, null),
+        ($1, 'link', 'https://l.example/r', 'page', 'redirect', null, null)`,
+      [id],
+    );
+    const res = await get(build(), s, `/scans/${id}`);
+    expect(res.status).toBe(200);
+    expect(ScanStatus.parse(res.body).counts).toEqual({
+      ok: 7, broken: 1, redirect: 1, restricted: 0, warning: 0, skipped: 0, indexed: 2, noindex: 1, nofollow: 1,
+    });
+  });
+
+  it("results_scan_id: own id when completed, last completed when newer is cancelled, null when never completed", async () => {
+    const s = await newSite();
+    const app = build();
+    const completed = await insertScan(s.id, "completed", new Date(Date.now() - 60_000));
+    await pool.query("update scan_jobs set completed_at = now() - interval '1 minute' where id = $1", [completed]);
+    const cancelled = await insertScan(s.id, "cancelled");
+    expect((await get(app, s, `/scans/${completed}`)).body.results_scan_id).toBe(completed);
+    expect((await get(app, s, `/scans/${cancelled}`)).body.results_scan_id).toBe(completed);
+    const fresh = await newSite();
+    const failed = await insertScan(fresh.id, "failed");
+    expect((await get(app, fresh, `/scans/${failed}`)).body.results_scan_id).toBeNull();
+  });
+
+  it("404s for another site's scan and malformed ids", async () => {
+    const a = await newSite();
+    const b = await newSite();
+    const id = await insertScan(a.id, "completed");
+    expect((await get(build(), b, `/scans/${id}`)).status).toBe(404);
+    expect((await get(build(), a, "/scans/not-a-uuid")).status).toBe(404);
+  });
+});
+
+describe("GET /scans/latest", () => {
+  it("returns the newest scan of any status", async () => {
+    const s = await newSite();
+    await insertScan(s.id, "completed", new Date(Date.now() - 120_000));
+    const newest = await insertScan(s.id, "failed", new Date(Date.now() - 60_000));
+    const res = await get(build(), s, "/scans/latest?type=link");
+    expect(res.status).toBe(200);
+    expect(res.body.scan_id).toBe(newest);
+    expect(res.body.status).toBe("failed");
+  });
+
+  it("404s for a site with no scans, and 400s for an unknown type", async () => {
+    const s = await newSite();
+    expect((await get(build(), s, "/scans/latest?type=link")).status).toBe(404);
+    expect((await get(build(), s, "/scans/latest?type=seo")).status).toBe(400);
+  });
+
+  it("limits reads to 600 per hour per site (601st is 429, shared across the three GETs)", async () => {
+    const s = await newSite();
+    const app = build();
+    for (let i = 0; i < 600; i++) expect((await get(app, s, "/scans/latest")).status).toBe(404);
+    const res = await get(app, s, "/scans/latest");
+    expect(res.status).toBe(429);
+    expect(ErrorBody.parse(res.body).error.code).toBe("rate_limited");
+  }, 60_000);
+});
+
+describe("POST /scans/:id/cancel", () => {
+  it.each(["starting", "queued", "running"])("cancels a %s scan and writes a scan.cancelled audit row", async (status) => {
+    const s = await newSite();
+    const id = await insertScan(s.id, status);
+    const res = await post(build(), s, `/scans/${id}/cancel`);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("cancelled");
+    expect((await scanRow(id)).status).toBe("cancelled");
+    const audits = await pool.query("select action, metadata from audit_logs where website_id = $1", [s.id]);
+    expect(audits.rows).toContainEqual({ action: "scan.cancelled", metadata: { scan_id: id } });
+  });
+
+  it.each(["completed", "failed", "cancelled"])("returns a %s scan unchanged (200, no audit)", async (status) => {
+    const s = await newSite();
+    const id = await insertScan(s.id, status);
+    const res = await post(build(), s, `/scans/${id}/cancel`);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe(status);
+    const audits = await pool.query("select 1 from audit_logs where website_id = $1 and action = 'scan.cancelled'", [s.id]);
+    expect(audits.rows).toHaveLength(0);
+  });
+
+  it("404s for another site's scan and malformed ids", async () => {
+    const a = await newSite();
+    const b = await newSite();
+    const id = await insertScan(a.id, "running");
+    expect((await post(build(), b, `/scans/${id}/cancel`)).status).toBe(404);
+    expect((await scanRow(id)).status).toBe("running");
+    expect((await post(build(), a, "/scans/nope/cancel")).status).toBe(404);
+  });
+
+  it("limits cancel to 30 per hour per site", async () => {
+    const s = await newSite();
+    const app = build();
+    for (let i = 0; i < 30; i++) expect((await post(app, s, "/scans/nope/cancel")).status).toBe(404);
+    expect((await post(app, s, "/scans/nope/cancel")).status).toBe(429);
   });
 });

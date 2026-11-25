@@ -3,24 +3,38 @@ import type pg from "pg";
 import { z } from "zod";
 import {
   CreateScanRequest,
+  ScanType,
   SCAN_LIMITS,
   ScanPagesRequest,
   normalizeLinkUrl,
   sameOrigin,
   type CreateScanResponse,
   type ScanPagesResponse,
+  type ScanStatus,
   type ScanState,
 } from "@sg/shared";
 import type { AppDeps } from "../app.js";
 import { audit } from "../lib/audit.js";
 import { ApiError } from "../lib/errors.js";
 import { limiter } from "../lib/rate-limit.js";
-import { deleteFinishedNonCompleted, getStatus, sweepStaleStarting } from "../lib/scan-store.js";
+import {
+  cancelScan,
+  deleteFinishedNonCompleted,
+  getStatus,
+  latestScan,
+  listResults,
+  sweepStaleStarting,
+} from "../lib/scan-store.js";
 import { requireSite, siteOf } from "../middleware/site-auth.js";
 
 const HOUR = 3600;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BeginRequest = z.object({}).strict();
+const LatestQuery = z.object({ type: ScanType.default("link") });
+const ResultsQuery = z.object({
+  cursor: z.string().regex(/^\d{1,18}$/).optional(),
+  limit: z.coerce.number().int().min(1).max(SCAN_LIMITS.batchMax).default(SCAN_LIMITS.batchMax),
+});
 const ENQUEUE_FAILED_ERROR = "The scan couldn't be started. Please try again.";
 
 function parse<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
@@ -70,6 +84,14 @@ async function storedPageCount(client: pg.PoolClient, scanId: string): Promise<n
     scanId,
   ]);
   return rows[0]!.n;
+}
+
+/** The scan's status; 404 for an unknown, malformed or another site's id. */
+async function ownedStatus(pool: pg.Pool, scanId: string, websiteId: string): Promise<ScanStatus> {
+  if (!UUID.test(scanId)) throw ApiError.notFound("Scan not found.");
+  const status = await getStatus(pool, scanId, websiteId);
+  if (!status) throw ApiError.notFound("Scan not found.");
+  return status;
 }
 
 export function scansRouter(deps: AppDeps): Router {
@@ -233,6 +255,64 @@ export function scansRouter(deps: AppDeps): Router {
       next(err);
     }
   });
+
+  const reads = limiter(pool, "scans-read", { points: 600, durationSec: HOUR }, bySite);
+
+  // Registered before /scans/:id so "latest" isn't parsed as an id.
+  r.get("/scans/latest", requireSite(deps), reads, async (req, res, next) => {
+    try {
+      const q = LatestQuery.safeParse(req.query);
+      if (!q.success) throw ApiError.badRequest("Invalid query.");
+      const status = await latestScan(pool, siteOf(req).id, q.data.type);
+      if (!status) throw ApiError.notFound("Scan not found.");
+      res.json(status);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  r.get("/scans/:id", requireSite(deps), reads, async (req, res, next) => {
+    try {
+      const status = await ownedStatus(pool, req.params.id!, siteOf(req).id);
+      res.json(status);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  r.get("/scans/:id/results", requireSite(deps), reads, async (req, res, next) => {
+    try {
+      const q = ResultsQuery.safeParse(req.query);
+      if (!q.success) throw ApiError.badRequest("Invalid query.");
+      const scanId = req.params.id!;
+      await ownedStatus(pool, scanId, siteOf(req).id);
+      res.json(await listResults(pool, scanId, q.data.cursor ?? null, q.data.limit));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  r.post(
+    "/scans/:id/cancel",
+    requireSite(deps),
+    limiter(pool, "scans-cancel", { points: 30, durationSec: HOUR }, bySite),
+    async (req, res, next) => {
+      try {
+        const site = siteOf(req);
+        const scanId = req.params.id!;
+        await ownedStatus(pool, scanId, site.id);
+        if (await cancelScan(pool, scanId, site.id)) {
+          await audit(
+            { supabase: deps.supabase, log: req.log },
+            { action: "scan.cancelled", website_id: site.id, ip: req.ip, metadata: { scan_id: scanId } },
+          );
+        }
+        res.json(await ownedStatus(pool, scanId, site.id));
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
 
   return r;
 }

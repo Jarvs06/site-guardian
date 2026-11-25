@@ -1,5 +1,5 @@
 import type pg from "pg";
-import { SCAN_LIMITS, type ScanStatus, type ScanType } from "@sg/shared";
+import { SCAN_LIMITS, type LinkResult, type ScanStatus, type ScanType } from "@sg/shared";
 
 /** A pool or a checked-out client (inside a transaction). */
 type Db = Pick<pg.Pool, "query">;
@@ -111,4 +111,34 @@ export async function deleteFinishedNonCompleted(db: Db, websiteId: string, type
     websiteId,
     type,
   ]);
+}
+
+/** One page of a scan's results (ordered by id), `limit` items after `cursor`; next_cursor is null on the last page. */
+export async function listResults(
+  db: Db,
+  scanId: string,
+  cursor: string | null,
+  limit: number,
+): Promise<{ items: LinkResult[]; next_cursor: string | null }> {
+  const { rows } = await db.query<LinkResult>(
+    `select id::text as id, kind, url, label, source, found_in, found_count, status, http_code, detail,
+            robots_index, robots_follow
+       from link_results
+      where scan_job_id = $1 and ($2::bigint is null or id > $2::bigint)
+      order by id asc
+      limit $3`,
+    [scanId, cursor, limit + 1],
+  );
+  const items = rows.slice(0, limit);
+  return { items, next_cursor: rows.length > limit ? items[items.length - 1]!.id : null };
+}
+
+/** Cancels the site's scan if it is still active. Returns whether it moved to `cancelled`. */
+export async function cancelScan(db: Db, scanId: string, websiteId: string): Promise<boolean> {
+  const { rowCount } = await db.query(
+    `update scan_jobs set status = 'cancelled', completed_at = now()
+      where id = $1 and website_id = $2 and status in ('starting', 'queued', 'running')`,
+    [scanId, websiteId],
+  );
+  return (rowCount ?? 0) > 0;
 }
