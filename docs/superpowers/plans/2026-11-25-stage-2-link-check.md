@@ -183,7 +183,7 @@
   - **Limiters,** keyed by `siteOf(req).id`:
     - `scans-create` 10/h
     - `scans-pages` 30/h
-    - `scans-read` 600/h (Task 5)
+    - `scans-read` 1,200/h (Task 5; raised from 600 in the final review)
     - `scans-cancel` 30/h (Task 5)
 
 - [ ] **Step 1: Write failing integration tests** in `scans.int.test.ts`, building the app like `sites.int.test.ts` with a registered website and a fake queue:
