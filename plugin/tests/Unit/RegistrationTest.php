@@ -125,4 +125,26 @@ final class RegistrationTest extends TestCase {
 		$this->assertNull( CredentialStore::get() );
 		$this->assertStringContainsString( 'reconnect', $this->db[ Options::LAST_ERROR ] );
 	}
+
+	/**
+	 * With SITE_GUARDIAN_CREDENTIAL set, a new credential written to the option would be ignored
+	 * (the constant wins), while Core would already reject the old one.
+	 */
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	#[\PHPUnit\Framework\Attributes\PreserveGlobalState( false )]
+	public function test_connect_and_rotate_refuse_when_credential_is_a_constant(): void {
+		define( 'SITE_GUARDIAN_CREDENTIAL', 'sgat_from_config' );
+		$this->responses['sites/credential/rotate'] = array( 'code' => 200, 'body' => '{"credential":"sgat_new"}' );
+
+		foreach ( array( Registration::connect(), Registration::rotate() ) as $r ) {
+			$this->assertFalse( $r->ok );
+			$this->assertSame( 409, $r->status );
+			$this->assertSame( 'credential_in_config', $r->error_code );
+			$this->assertStringContainsString( 'wp-config.php', (string) $r->message );
+		}
+		$this->assertSame( array(), $this->calls, 'Core must not be called' );
+		$this->assertArrayNotHasKey( Options::CREDENTIAL, $this->db );
+		$this->assertSame( 'sgat_from_config', CredentialStore::get() );
+		$this->assertTrue( CredentialStore::from_constant() );
+	}
 }

@@ -16,6 +16,8 @@ defined( 'ABSPATH' ) || exit;
  */
 final class Registration {
 
+	public const CONFIG_CREDENTIAL_MESSAGE = 'The Site Guardian credential is set in wp-config.php (SITE_GUARDIAN_CREDENTIAL). Change it there.';
+
 	/**
 	 * Whether a credential is available.
 	 */
@@ -27,6 +29,9 @@ final class Registration {
 	 * Run the start, verify, complete handshake.
 	 */
 	public static function connect(): Result {
+		if ( CredentialStore::from_constant() ) {
+			return self::config_credential_failure();
+		}
 		try {
 			$result = self::handshake();
 		} finally {
@@ -43,6 +48,9 @@ final class Registration {
 	 * Rotate the credential.
 	 */
 	public static function rotate(): Result {
+		if ( CredentialStore::from_constant() ) {
+			return self::config_credential_failure();
+		}
 		$result = Client::request( 'POST', 'sites/credential/rotate' );
 
 		if ( $result->ok && isset( $result->data['credential'] ) && is_string( $result->data['credential'] ) ) {
@@ -57,6 +65,14 @@ final class Registration {
 			update_option( Options::LAST_ERROR, (string) $result->message, false );
 		}
 		return $result->ok ? Result::failure( $result->status, 'bad_response', 'Site Guardian returned an unexpected response.' ) : $result;
+	}
+
+	/**
+	 * A new credential would be stored in the option, which the constant overrides, while Core
+	 * would already reject the old one: refuse before calling Core.
+	 */
+	private static function config_credential_failure(): Result {
+		return Result::failure( 409, 'credential_in_config', self::CONFIG_CREDENTIAL_MESSAGE );
 	}
 
 	/**

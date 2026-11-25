@@ -54,6 +54,13 @@ function siteOrigin(siteUrl: string, allowLocal: boolean): string {
     if (err instanceof InvalidOriginError) throw ApiError.badRequest("site_url is not a valid public site address.");
     throw err;
   }
+  // Identity and verification are origin-only, so the site must live at the origin root.
+  // Verifying a sub-folder install at its path would let one path's owner re-verify the origin.
+  if (new URL(siteUrl).pathname.replace(/\/+$/, "") !== "") {
+    throw ApiError.badRequest(
+      "WordPress installed in a sub-folder (like example.com/blog) can't be connected yet. Site Guardian currently supports sites at the root of their domain.",
+    );
+  }
   const host = new URL(origin).hostname.toLowerCase();
   if (!host.startsWith("[") && host.split(".").some((label) => label === "")) {
     throw ApiError.badRequest("site_url is not a valid public site address.");

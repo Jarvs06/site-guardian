@@ -70,6 +70,21 @@ final class ClientTest extends TestCase {
 		$this->assertSame( '{"a":1}', $args['body'] );
 	}
 
+	/**
+	 * Core's worst case is 75 s for a chat reply and about 20 s for register/complete (two 10 s
+	 * verify fetches). Waiting less would report a failure while Core still finishes the work.
+	 */
+	public function test_slow_core_routes_get_longer_timeouts(): void {
+		CredentialStore::put( 'sgat_abc' );
+		$this->respond( 200, '{}' );
+		Client::request( 'POST', '/ai/chat', array( 'message' => 'hi' ) );
+		Client::request( 'POST', 'sites/register/complete', array( 'challenge_id' => 'c' ), false );
+		Client::request( 'POST', 'sites/register/start', array(), false );
+		$this->assertSame( 90, $this->calls[0][1]['timeout'] );
+		$this->assertSame( 30, $this->calls[1][1]['timeout'] );
+		$this->assertSame( 15, $this->calls[2][1]['timeout'] );
+	}
+
 	public function test_no_user_ref_without_logged_in_user(): void {
 		CredentialStore::put( 'sgat_abc' );
 		$this->respond( 200, '{}' );

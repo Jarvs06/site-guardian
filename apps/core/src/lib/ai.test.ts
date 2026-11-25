@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it, vi } from "vitest";
-import { createAnthropicAi } from "./ai.js";
+import { AI_DEADLINE_MS, AI_MAX_RETRIES, createAnthropicAi } from "./ai.js";
 import { ApiError } from "./errors.js";
 
 const config = { ANTHROPIC_API_KEY: "k", ANTHROPIC_MODEL: "claude-opus-5-5" };
@@ -70,5 +70,25 @@ describe("createAnthropicAi", () => {
       throw boom;
     });
     await expect(ai.reply(input)).rejects.toBe(boom);
+  });
+
+  // The plugin waits 90 s for /ai/chat: one deadline must bound the whole call, retries included.
+  it("bounds the whole call with one deadline and maps the abort to aiUnavailable", async () => {
+    const create = vi.fn(
+      (_body: unknown, opts?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          if (!opts?.signal) return reject(new Error("no deadline signal passed"));
+          opts.signal.addEventListener("abort", () => reject(new Anthropic.APIUserAbortError()));
+        }),
+    );
+    const ai = createAnthropicAi(config, () => ({ beta: { messages: { create } } }), undefined, 50);
+    const started = Date.now();
+    await expect(ai.reply(input)).rejects.toMatchObject({ code: "ai_unavailable" });
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it("default deadline and SDK retries stay below the plugin's 90 s chat timeout", () => {
+    expect(AI_DEADLINE_MS).toBeLessThanOrEqual(75_000);
+    expect(AI_MAX_RETRIES).toBeLessThanOrEqual(1);
   });
 });

@@ -8,6 +8,7 @@
 namespace SiteGuardian\Admin;
 
 use SiteGuardian\Core\Client;
+use SiteGuardian\Core\CredentialStore;
 use SiteGuardian\Core\Registration;
 use SiteGuardian\Support\Options;
 
@@ -130,6 +131,9 @@ final class SettingsPage {
 				<?php endif; ?>
 			</table>
 
+			<?php if ( CredentialStore::from_constant() ) : ?>
+			<p class="description"><?php echo esc_html( Registration::CONFIG_CREDENTIAL_MESSAGE ); ?></p>
+			<?php else : ?>
 			<p>
 				<button type="button" class="button button-primary" id="sg-connect"><?php echo esc_html( '' !== $last_error && ! $connected ? __( 'Retry', 'site-guardian' ) : __( 'Connect', 'site-guardian' ) ); ?></button>
 				<?php if ( $connected ) : ?>
@@ -137,6 +141,7 @@ final class SettingsPage {
 				<?php endif; ?>
 				<span id="sg-progress" role="status" aria-live="polite"></span>
 			</p>
+			<?php endif; ?>
 
 			<h2><?php echo esc_html__( 'Access', 'site-guardian' ); ?></h2>
 			<form method="post" action="<?php echo esc_url( admin_url( 'options.php' ) ); ?>">

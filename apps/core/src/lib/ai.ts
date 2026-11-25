@@ -9,8 +9,15 @@ export interface AiClient {
 
 /** The slice of the SDK client we use; tests inject a fake. */
 export interface AnthropicLike {
-  beta: { messages: { create(body: never): PromiseLike<unknown> } };
+  beta: { messages: { create(body: never, options?: { signal?: AbortSignal }): PromiseLike<unknown> } };
 }
+
+/**
+ * One deadline for the whole reply, SDK retries included. It must stay below the plugin's
+ * 90 s timeout for /ai/chat, or WordPress gives up while Core still stores a reply nobody sees.
+ */
+export const AI_DEADLINE_MS = 75_000;
+export const AI_MAX_RETRIES = 1;
 
 type AiConfig = Pick<Config, "ANTHROPIC_API_KEY" | "ANTHROPIC_MODEL">;
 
@@ -22,8 +29,9 @@ interface ReplyShape {
 export function createAnthropicAi(
   config: AiConfig,
   makeClient: (apiKey: string) => AnthropicLike = (apiKey) =>
-    new Anthropic({ apiKey, timeout: 60_000, maxRetries: 2 }) as unknown as AnthropicLike,
+    new Anthropic({ apiKey, timeout: AI_DEADLINE_MS, maxRetries: AI_MAX_RETRIES }) as unknown as AnthropicLike,
   log?: Logger,
+  deadlineMs: number = AI_DEADLINE_MS,
 ): AiClient {
   const client = makeClient(config.ANTHROPIC_API_KEY ?? "");
   return {
@@ -40,7 +48,7 @@ export function createAnthropicAi(
           betas: ["server-side-fallback-2026-07-01"],
           fallbacks: "default",
         };
-        res = (await client.beta.messages.create(body as never)) as ReplyShape;
+        res = (await client.beta.messages.create(body as never, { signal: AbortSignal.timeout(deadlineMs) })) as ReplyShape;
       } catch (err) {
         throw mapError(err, log);
       }
@@ -61,6 +69,7 @@ function mapError(err: unknown, log?: Logger): unknown {
   if (err instanceof ApiError) return err;
   if (err instanceof Anthropic.RateLimitError) return ApiError.aiUnavailable();
   if (err instanceof Anthropic.APIConnectionError) return ApiError.aiUnavailable(); // includes timeouts
+  if (err instanceof Anthropic.APIUserAbortError) return ApiError.aiUnavailable(); // our overall deadline
   if (err instanceof Anthropic.InternalServerError) return ApiError.aiUnavailable();
   if (err instanceof Anthropic.APIError && typeof err.status === "number" && err.status >= 500) {
     return ApiError.aiUnavailable();

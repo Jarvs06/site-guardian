@@ -33,10 +33,17 @@ final class CredentialStore {
 	}
 
 	/**
+	 * Whether the credential comes from the SITE_GUARDIAN_CREDENTIAL constant (it then wins over the option).
+	 */
+	public static function from_constant(): bool {
+		return defined( 'SITE_GUARDIAN_CREDENTIAL' ) && is_string( SITE_GUARDIAN_CREDENTIAL ) && '' !== SITE_GUARDIAN_CREDENTIAL;
+	}
+
+	/**
 	 * Get the plaintext credential, or null if absent or undecryptable.
 	 */
 	public static function get(): ?string {
-		if ( defined( 'SITE_GUARDIAN_CREDENTIAL' ) && is_string( SITE_GUARDIAN_CREDENTIAL ) && '' !== SITE_GUARDIAN_CREDENTIAL ) {
+		if ( self::from_constant() ) {
 			return SITE_GUARDIAN_CREDENTIAL;
 		}
 

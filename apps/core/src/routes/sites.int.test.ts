@@ -133,7 +133,7 @@ describe("sites: register/start", () => {
     const origin = newOrigin();
     const fixed = new Date("2030-01-01T00:00:00.000Z");
     const app = build({ now: () => fixed });
-    const res = await start(app, { installation_id: randomUUID(), site_url: `${origin}/blog?x=1` });
+    const res = await start(app, { installation_id: randomUUID(), site_url: `${origin}/?x=1` });
     expect(res.status).toBe(201);
     expect(res.body.challenge_id).toMatch(/^[0-9a-f-]{36}$/);
     expect(typeof res.body.challenge).toBe("string");
@@ -170,6 +170,27 @@ describe("sites: register/start", () => {
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe("bad_request");
   });
+
+  // Identity and verification are origin-only: a sub-folder install would be verified at the
+  // origin root (wrong WordPress, or a takeover of the origin's row by one path's owner).
+  it.each(["https://example.com/blog", "https://example.com/blog/", "https://example.com/~alice/wp"])(
+    "rejects a sub-folder site_url %s with 400 and a clear message",
+    async (site_url) => {
+      const res = await start(build(), { installation_id: randomUUID(), site_url });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe("bad_request");
+      expect(res.body.error.message).toMatch(/sub-folder/i);
+    },
+  );
+
+  it.each(["https://Example.COM:443/", "https://example.com", "https://example.com/?lang=en"])(
+    "accepts a root site_url %s",
+    async (site_url) => {
+      createdOrigins.push("https://example.com");
+      const res = await start(build(), { installation_id: randomUUID(), site_url });
+      expect(res.status).toBe(201);
+    },
+  );
 
   it("ALLOW_LOCAL_SITES=true accepts http://localhost:8080", async () => {
     createdOrigins.push("http://localhost:8080");

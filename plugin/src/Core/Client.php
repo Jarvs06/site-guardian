@@ -16,6 +16,17 @@ final class Client {
 
 	public const DEFAULT_BASE_URL = 'https://core.siteguardian.ai/api/v1';
 
+	/**
+	 * Seconds to wait for Core. Longer than Core's own worst case for each slow route
+	 * (chat: 75 s AI deadline; complete: two 10 s verify fetches), so WordPress never gives up
+	 * on work Core then completes.
+	 */
+	public const DEFAULT_TIMEOUT = 15;
+	public const ROUTE_TIMEOUTS  = array(
+		'ai/chat'                 => 90,
+		'sites/register/complete' => 30,
+	);
+
 	public const NETWORK_MESSAGE = "Couldn't reach Site Guardian. Please check your connection and try again.";
 
 	/**
@@ -58,7 +69,7 @@ final class Client {
 
 		$args = array(
 			'method'      => strtoupper( $method ),
-			'timeout'     => 15,
+			'timeout'     => self::ROUTE_TIMEOUTS[ ltrim( $path, '/' ) ] ?? self::DEFAULT_TIMEOUT,
 			'sslverify'   => true,
 			'redirection' => 0,
 			'headers'     => $headers,
