@@ -1,6 +1,6 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP, type LookupFunction } from "node:net";
-import { Agent, request } from "undici";
+import { Agent, type Dispatcher, request } from "undici";
 import { isBlockedAddress } from "./ip-policy.js";
 
 export interface SafeFetchOptions {
@@ -53,13 +53,28 @@ export class SafeFetchError extends Error {
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
+type ResponseData = Dispatcher.ResponseData;
+
+/** Per-attempt TCP/TLS connect limit, so one dead address leaves budget for the next. */
+const CONNECT_TIMEOUT_MS = 3000;
+
+/** Errors raised before any request byte is sent, where trying the next address is safe. */
+const CONNECT_FAILURE_CODES = new Set([
+  "ECONNREFUSED",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "EADDRNOTAVAIL",
+  "UND_ERR_CONNECT_TIMEOUT",
+]);
+
 const defaultResolver = async (host: string): Promise<string[]> =>
   (await dnsLookup(host, { all: true, verbatim: true })).map((a) => a.address);
 
 /**
  * Fetch a user-supplied URL without allowing SSRF: http(s) only, allowed ports
- * only, every resolved address checked, the socket pinned to the validated
- * address, redirects followed manually with every check re-run per hop.
+ * only, every resolved address checked, each connect pinned to one validated
+ * address (falling back to the next validated one only if the connect fails),
+ * redirects followed manually with every check re-run per hop.
  */
 export function safeFetch(url: string, opts: SafeFetchOptions = {}): Promise<SafeFetchResponse> {
   return safeFetchWithPolicy(url, opts, opts.allowPrivate ? () => false : isBlockedAddress);
@@ -118,14 +133,28 @@ async function run(
     const hopHeaders = { ...baseHeaders };
     if (redirects > 0) delete hopHeaders.authorization;
 
-    const ip = await validateHop(current, allowedPorts, resolver, isBlocked, signal);
+    const ips = await validateHop(current, allowedPorts, resolver, isBlocked, signal);
     const target = `${current.protocol}//${current.host}${current.pathname}${current.search}`;
-    const agent = new Agent({ connect: { lookup: pinnedLookup(ip) } });
+    let agent: Agent | undefined;
     // undici does not cancel an in-flight TCP/TLS connect on abort; destroying the agent does.
-    const onAbort = () => void agent.destroy().catch(() => {});
+    const onAbort = () => void agent?.destroy().catch(() => {});
     signal.addEventListener("abort", onAbort, { once: true });
     try {
-      const res = await request(target, { dispatcher: agent, method, headers: hopHeaders, signal });
+      let res: ResponseData | undefined;
+      // Try each checked address in order, each attempt pinned to that one address. Move on only
+      // when the connect itself failed (no request byte sent) and the overall budget remains.
+      for (const [i, ip] of ips.entries()) {
+        agent = new Agent({ connect: { lookup: pinnedLookup(ip), timeout: CONNECT_TIMEOUT_MS } });
+        try {
+          res = await request(target, { dispatcher: agent, method, headers: hopHeaders, signal });
+          break;
+        } catch (err) {
+          const tryNext = i < ips.length - 1 && !signal.aborted && isConnectFailure(err);
+          if (!tryNext) throw err;
+          await agent.destroy().catch(() => {});
+        }
+      }
+      if (res === undefined) throw new Error("unreachable: validateHop returns at least one address");
       // Discarding a body early (redirect, truncation) destroys the stream; that is not an error.
       res.body.on("error", () => {});
       const location = firstHeader(res.headers.location);
@@ -141,7 +170,7 @@ async function run(
       return { status: res.statusCode, finalUrl: target, headers: flattenHeaders(res.headers), body, truncated };
     } finally {
       signal.removeEventListener("abort", onAbort);
-      await agent.destroy().catch(() => {});
+      await agent?.destroy().catch(() => {});
     }
   }
 }
@@ -156,6 +185,13 @@ function isTransportError(err: unknown): boolean {
   return typeof err.code === "string" && err.code !== "UND_ERR_INVALID_ARG";
 }
 
+function isConnectFailure(err: unknown): boolean {
+  const codeOf = (e: unknown): unknown =>
+    typeof e === "object" && e !== null && "code" in e ? e.code : undefined;
+  const cause = typeof err === "object" && err !== null && "cause" in err ? err.cause : undefined;
+  return [codeOf(err), codeOf(cause)].some((code) => typeof code === "string" && CONNECT_FAILURE_CODES.has(code));
+}
+
 function parseUrl(input: string, what: string, base?: URL): URL {
   try {
     return new URL(input, base);
@@ -164,14 +200,17 @@ function parseUrl(input: string, what: string, base?: URL): URL {
   }
 }
 
-/** Run scheme, port, DNS and address checks for one hop; return the IP to pin to. */
+/**
+ * Run scheme, port, DNS and address checks for one hop; return every resolved IP, all checked, in
+ * resolver order. Any blocked address rejects the whole request.
+ */
 async function validateHop(
   url: URL,
   allowedPorts: number[],
   resolver: (host: string) => Promise<string[]>,
   isBlocked: (ip: string) => boolean,
   signal: AbortSignal,
-): Promise<string> {
+): Promise<string[]> {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new SafeFetchError("bad_scheme", `scheme not allowed: ${url.protocol}`);
   }
@@ -195,7 +234,7 @@ async function validateHop(
   // Refuse if ANY address is blocked rather than picking a "good" one.
   const blocked = ips.find((ip) => isBlocked(ip));
   if (blocked !== undefined) throw new SafeFetchError("blocked_address", `address not allowed for ${host}`);
-  return ips[0] as string;
+  return ips;
 }
 
 function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {

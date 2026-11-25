@@ -169,19 +169,53 @@ describe("safeFetch: fetching", () => {
     expect(res.body).toBe("pinned");
   });
 
-  it("does not fall back to a later address when the first is unreachable", async () => {
-    const local = await listen((_req, res) => res.end("should not be reached"));
-    const started = Date.now();
-    const err = await safeFetch(local.url("rebind.test"), {
-      resolver: async () => ["192.0.2.1", "127.0.0.1"],
+  it("falls back to the next checked address when the first refuses", async () => {
+    // The server listens on 127.0.0.1 only, so ::1 refuses the connect instantly.
+    const local = await listen((_req, res) => res.end("ok"));
+    const res = await safeFetch(local.url("fallback.test"), {
+      resolver: async () => ["::1", "127.0.0.1"],
       allowPrivate: true,
       allowedPorts: [local.port],
-      timeoutMs: 500,
+      timeoutMs: 2000,
+    });
+    expect(res.body).toBe("ok");
+    expect(local.seen).toHaveLength(1);
+  });
+
+  it("never falls back to an unchecked address", async () => {
+    const local = await listen((_req, res) => res.end("should not be reached"));
+    await expect(
+      safeFetchWithPolicy(
+        local.url("unchecked.test"),
+        { resolver: async () => ["127.0.0.2", "10.0.0.5"], allowedPorts: [local.port], timeoutMs: 2000 },
+        allowLoopbackOnly,
+      ),
+    ).rejects.toMatchObject({ code: "blocked_address" });
+    expect(local.seen).toHaveLength(0);
+  });
+
+  it("does not retry another address after a response", async () => {
+    const local = await listen((_req, res) => res.writeHead(503).end("unavailable"));
+    const res = await safeFetch(local.url("twice.test"), {
+      resolver: async () => ["127.0.0.1", "127.0.0.1"],
+      allowPrivate: true,
+      allowedPorts: [local.port],
+      timeoutMs: 2000,
+    });
+    expect(res.status).toBe(503);
+    expect(local.seen).toHaveLength(1);
+  });
+
+  it("budget holds when every address hangs", async () => {
+    const started = Date.now();
+    const err = await safeFetch("http://hang.test/", {
+      resolver: async () => ["192.0.2.1", "192.0.2.2"],
+      allowPrivate: true,
+      timeoutMs: 800,
     }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(SafeFetchError);
     expect(["timeout", "network_error"]).toContain((err as SafeFetchError).code);
-    expect(local.seen).toHaveLength(0);
-    // timeoutMs is a hard budget even while a TCP connect is still pending.
+    // timeoutMs is a hard budget across all attempts, even while TCP connects are pending.
     expect(Date.now() - started).toBeLessThan(2000);
   });
 
