@@ -58,6 +58,7 @@ final class ScanControllerTest extends TestCase {
 		Functions\when( 'get_post_types' )->justReturn( array( 'page' ) );
 		Functions\when( 'get_post_type' )->justReturn( 'page' );
 		Functions\when( 'get_permalink' )->alias( fn( $id ) => 'https://example.com/p' . $id . '/' );
+		Functions\when( 'get_option' )->justReturn( 'posts' );
 	}
 
 	private function paths(): array {
