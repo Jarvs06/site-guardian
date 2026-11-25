@@ -63,11 +63,16 @@ final class PageList {
 				)
 			);
 			$found += (int) $query->found_posts;
+			$ids    = (array) $query->posts;
 
 			$seen = array( $home => true );
-			foreach ( (array) $query->posts as $id ) {
+			foreach ( $ids as $id ) {
 				$url = get_permalink( $id );
-				if ( ! is_string( $url ) || '' === $url || isset( $seen[ $url ] ) ) {
+				if ( ! is_string( $url ) || '' === $url ) {
+					continue;
+				}
+				if ( isset( $seen[ $url ] ) ) {
+					--$found;
 					continue;
 				}
 				$seen[ $url ] = true;
@@ -75,6 +80,13 @@ final class PageList {
 					'url'    => $url,
 					'source' => (string) get_post_type( $id ),
 				);
+			}
+
+			// A static front page is the home URL; past the cap it is in found_posts but not in $ids.
+			$front = 'page' === get_option( 'show_on_front' ) ? (int) get_option( 'page_on_front' ) : 0;
+			if ( $front > 0 && ! in_array( $front, $ids, true ) && 'publish' === get_post_status( $front )
+				&& in_array( get_post_type( $front ), $types, true ) ) {
+				--$found;
 			}
 		}
 

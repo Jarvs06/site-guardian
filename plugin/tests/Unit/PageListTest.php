@@ -21,6 +21,18 @@ final class PageListTest extends TestCase {
 		Functions\when( 'get_post_types' )->justReturn( array( 'post', 'page', 'attachment', 'wp_block', 'product' ) );
 		Functions\when( 'get_post_type' )->alias( fn( $id ) => 3 === $id ? 'post' : 'page' );
 		Functions\when( 'get_permalink' )->alias( fn( $id ) => 'https://example.com/p' . $id . '/' );
+		Functions\when( 'get_option' )->alias( fn( $name ) => 'show_on_front' === $name ? 'posts' : 0 );
+		Functions\when( 'get_post_status' )->justReturn( 'publish' );
+	}
+
+	/**
+	 * Make post $id the static front page, whose permalink is the home URL.
+	 */
+	private function static_front_page( int $id ): void {
+		Functions\when( 'get_option' )->alias(
+			fn( $name ) => 'show_on_front' === $name ? 'page' : ( 'page_on_front' === $name ? $id : 0 )
+		);
+		Functions\when( 'get_permalink' )->alias( fn( $pid ) => $id === $pid ? 'https://example.com/' : 'https://example.com/p' . $pid . '/' );
 	}
 
 	protected function tearDown(): void {
@@ -65,5 +77,32 @@ final class PageListTest extends TestCase {
 	public function test_found_counts_home(): void {
 		\WP_Query::$found = 40;
 		$this->assertSame( 41, PageList::collect()['found'] );
+	}
+
+	public function test_found_does_not_count_a_skipped_duplicate(): void {
+		Functions\when( 'get_permalink' )->alias( fn( $id ) => 3 === $id ? 'https://example.com/p2/' : 'https://example.com/p' . $id . '/' );
+		$out = PageList::collect();
+		$this->assertCount( 3, $out['pages'] );
+		$this->assertSame( 3, $out['found'] );
+	}
+
+	public function test_static_front_page_is_counted_once(): void {
+		$this->static_front_page( 1 );
+		$out = PageList::collect();
+		$this->assertCount( 3, $out['pages'] );
+		$this->assertSame( 3, $out['found'] );
+	}
+
+	public function test_static_front_page_beyond_the_cap_is_counted_once(): void {
+		\WP_Query::$found = 1500;
+		$this->static_front_page( 9999 );
+		$this->assertSame( 1500, PageList::collect()['found'] );
+	}
+
+	public function test_unpublished_static_front_page_is_not_subtracted(): void {
+		\WP_Query::$found = 1500;
+		$this->static_front_page( 9999 );
+		Functions\when( 'get_post_status' )->justReturn( 'draft' );
+		$this->assertSame( 1501, PageList::collect()['found'] );
 	}
 }
