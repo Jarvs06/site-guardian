@@ -9,3 +9,7 @@ plugin/vendor
 *.tsbuildinfo
 .DS_Store
 plugin/.phpunit.cache
+
+# Playwright output
+e2e/test-results/
+e2e/playwright-report/

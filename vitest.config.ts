@@ -3,7 +3,7 @@ import { defineConfig } from "vitest/config";
 // Unit tests: *.test.ts (integration tests *.int.test.ts are excluded).
 // Integration tests: *.int.test.ts, run with `pnpm test:integration`.
 // Plugin tests: plain-JS front-end tests of the WordPress plugin, under jsdom.
-// A later task adds the `e2e` workspace package.
+// End-to-end checks live in the `e2e` package (Playwright), run with `pnpm --filter e2e test`.
 export default defineConfig({
   test: {
     projects: [
