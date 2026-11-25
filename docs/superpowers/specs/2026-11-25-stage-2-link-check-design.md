@@ -194,7 +194,7 @@ worker and the tests.
 - **Rate limits** (Postgres limiter, per site):
   - `POST /scans`: 10 per hour.
   - `/pages`: 30 per hour, enough for 2 full scans' batches.
-  - Reads: 600 per hour.
+  - Reads: 1,200 per hour.
   - `cancel`: 30 per hour.
 - **Audit:** `scan.created`, `scan.cancelled`, `scan.completed` and `scan.failed` rows in
   `audit_logs`.

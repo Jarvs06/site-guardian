@@ -521,10 +521,10 @@ describe("GET /scans/latest", () => {
     expect((await get(build(), s, "/scans/latest?type=seo")).status).toBe(400);
   });
 
-  it("limits reads to 600 per hour per site (601st is 429, shared across the three GETs)", async () => {
+  it("limits reads to 1,200 per hour per site (1,201st is 429, shared across the three GETs)", async () => {
     const s = await newSite();
     const app = build();
-    for (let i = 0; i < 600; i++) expect((await get(app, s, "/scans/latest")).status).toBe(404);
+    for (let i = 0; i < 1200; i++) expect((await get(app, s, "/scans/latest")).status).toBe(404);
     const res = await get(app, s, "/scans/latest");
     expect(res.status).toBe(429);
     expect(ErrorBody.parse(res.body).error.code).toBe("rate_limited");

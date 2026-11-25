@@ -30,7 +30,7 @@
 - **Rate limits** (per site):
   - `POST /scans`: 10 per hour.
   - `/pages`: 30 per hour.
-  - Reads: 600 per hour.
+  - Reads: 1,200 per hour.
   - `cancel`: 30 per hour.
 - **User-Agent:** `SiteGuardianBot/<VERSION> (+https://siteguardian.ai/bot)`. No cookies and no auth headers.
 - **Status buckets and detail rules:** §8, verbatim. Link rows use `source = 'page'`, page rows use the post type.

@@ -256,7 +256,7 @@ export function scansRouter(deps: AppDeps): Router {
     }
   });
 
-  const reads = limiter(pool, "scans-read", { points: 600, durationSec: HOUR }, bySite);
+  const reads = limiter(pool, "scans-read", { points: 1200, durationSec: HOUR }, bySite);
 
   // Registered before /scans/:id so "latest" isn't parsed as an id.
   r.get("/scans/latest", requireSite(deps), reads, async (req, res, next) => {
