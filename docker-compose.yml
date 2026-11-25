@@ -1,0 +1,73 @@
+# Local WordPress for end-to-end testing against a Core running on the host.
+#
+#   docker compose up -d        # WordPress on http://127.0.0.1:8080 + MySQL
+#   scripts/dev-setup.sh        # installs WordPress and activates the plugin (uses the wpcli service)
+#
+# Core runs on the host (port 8787); the containers reach it at host.docker.internal.
+# The plugin directory (with vendor/) is mounted read-only.
+#
+# The site address is 127.0.0.1, not localhost: Core verifies the site by fetching it from the host,
+# safe-fetch pins to the first resolved address, and localhost resolves to ::1 first while the
+# port is published on IPv4.
+
+x-wp-env: &wp-env
+  WORDPRESS_DB_HOST: db:3306
+  WORDPRESS_DB_USER: wordpress
+  WORDPRESS_DB_PASSWORD: wordpress
+  WORDPRESS_DB_NAME: wordpress
+  WORDPRESS_CONFIG_EXTRA: |
+    define( 'SITE_GUARDIAN_CORE_URL', 'http://host.docker.internal:8787/api/v1' );
+    define( 'WP_HOME', 'http://127.0.0.1:8080' );
+    define( 'WP_SITEURL', 'http://127.0.0.1:8080' );
+    define( 'DISABLE_WP_CRON', true );
+
+x-wp-volumes: &wp-volumes
+  - wordpress:/var/www/html
+  - ./plugin:/var/www/html/wp-content/plugins/site-guardian:ro
+
+services:
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: wordpress
+      MYSQL_RANDOM_ROOT_PASSWORD: "1"
+    volumes:
+      - db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uwordpress -pwordpress --silent"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+
+  wordpress:
+    image: wordpress:php8.2-apache
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+    environment: *wp-env
+    volumes: *wp-volumes
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # One-off WP-CLI runs: `docker compose run --rm wpcli wp <command>`.
+  wpcli:
+    image: wordpress:cli-php8.2
+    profiles: ["cli"]
+    user: "33:33" # www-data in the wordpress (Debian) image, so files stay writable by Apache
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *wp-env
+      HOME: /tmp
+    volumes: *wp-volumes
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  db:
+  wordpress:

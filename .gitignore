@@ -1,0 +1,15 @@
+node_modules
+dist
+.env
+.env.*
+!.env.example
+coverage
+plugin/vendor
+.superpowers/
+*.tsbuildinfo
+.DS_Store
+plugin/.phpunit.cache
+
+# Playwright output
+e2e/test-results/
+e2e/playwright-report/

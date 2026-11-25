@@ -1,0 +1,15 @@
+{
+  "name": "@sg/e2e",
+  "private": true,
+  "type": "module",
+  "description": "Stage 1 end-to-end checks: local WordPress (docker compose) + Core on the host + local Supabase.",
+  "scripts": {
+    "test": "playwright test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.1"
+  }
+}

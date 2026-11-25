@@ -1,0 +1,123 @@
+/* =============================================
+   Site Guardian — page shell (new in the rebuild)
+
+   Loaded after the four CSS files copied from the old plugin. Holds:
+   - the baseline reset that used to be an inline <style> in clean-page.php,
+   - the tab bar that puts the old pages on one screen,
+   - classes replacing the old inline style="" attributes (CSP: style-src 'self').
+   ============================================= */
+
+/* ── Baseline reset (was inline in clean-page.php) ── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: #f0f4f8;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+}
+
+/* The old templates hid elements with style="display:none"; they now use the
+   hidden attribute, which must win over the copied CSS's display rules. */
+[hidden] { display: none !important; }
+
+/* ── App shell: tab bar on top, the active screen fills the rest ── */
+.sg-app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100svh;
+    font-family: var(--sga-font, 'DM Sans', system-ui, sans-serif);
+}
+
+.sg-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 6px 16px 0;
+    background: #1e3a8a;
+    flex-shrink: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.sg-tabs::-webkit-scrollbar { display: none; }
+
+.sg-tab {
+    padding: 8px 16px;
+    font-family: inherit;
+    font-size: .82rem;
+    font-weight: 500;
+    color: rgba(255, 255, 255, .8);
+    background: transparent;
+    border: none;
+    border-radius: 10px 10px 0 0;
+    cursor: pointer;
+    white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
+}
+.sg-tab:hover { color: #fff; background: rgba(255, 255, 255, .1); }
+.sg-tab.is-active,
+.sg-tab[aria-selected="true"] { color: #1e3a8a; background: #fff; }
+.sg-tab:focus-visible { outline: 2px solid #93c5fd; outline-offset: -2px; }
+
+.sg-panel {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* The chat was a full-viewport page; inside the shell it fills the panel instead. */
+.sg-panel--chat { overflow: hidden; }
+.sg-panel--chat .sga-wrap { height: 100%; }
+
+/* The link scanner was a shortcode inside the clean page: give it the same breathing room. */
+.sg-panel--page { padding: 24px 16px; }
+
+/* The remote scanner was a full page too. */
+.sg-panel--remote .sgr-wrap { min-height: 100%; }
+
+/* ── "Coming soon" notice on the scan screens ── */
+.sg-coming-soon {
+    margin: 16px 24px;
+    padding: 12px 16px;
+    font-size: .88rem;
+    line-height: 1.5;
+    color: #92400e;
+    background: #fff7ed;
+    border: 1px solid #fde68a;
+    border-radius: 10px;
+}
+.sgr-input-section .sg-coming-soon { margin: 0 0 16px; }
+
+.sg-panel-body { padding: 0 24px 8px; }
+
+.sg-plain-list {
+    margin: 0;
+    padding: 12px 16px 12px 34px;
+    color: #334155;
+    line-height: 1.7;
+}
+
+/* Disabled controls on the coming-soon screens. */
+[data-coming-soon] button:disabled,
+[data-coming-soon] input:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+/* ── Replacements for inline styles the old JS/templates set ── */
+/* remote-scan.php: <p id="sgr-url-error" style="color:#dc2626"> */
+.sg-error-text { color: #dc2626; }
+
+/* User messages are inserted as text (not markdown): keep their line breaks. */
+.sg-bubble--plain { white-space: pre-wrap; }
+
+/* Error replies in the chat (old JS prefixed them with ⚠️ in a normal AI bubble). */
+.sg-msg--error .sga-bubble { color: #b91c1c; }
+
+@media (max-width: 600px) {
+    .sg-tabs { padding: 6px 8px 0; }
+    .sg-tab { padding: 8px 12px; font-size: .78rem; }
+    .sg-panel--page { padding: 16px 8px; }
+}

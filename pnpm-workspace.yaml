@@ -1,0 +1,7 @@
+packages:
+  - apps/*
+  - packages/*
+  - plugin
+  - e2e
+allowBuilds:
+  esbuild: true
