@@ -251,8 +251,10 @@ worker and the tests.
     - `/wp-login.php`, anything under `/wp-admin/`, `/xmlrpc.php`, `/wp-json/`
     - `?share=` links
     External links are never skipped this way.
-  - Skip `mailto:`, `tel:`, `javascript:`, `data:` and same-page `#` anchors. These are recorded
-    as `skipped` with the reason, except bare `#` anchors, which are ignored.
+  - Skip `mailto:`, `tel:`, `javascript:` and `data:` links: they are recorded as `skipped` with
+    the reason. Same-page anchors (any `href` starting with `#`) are ignored, with no row.
+    (Amended 2026-11-25 during build: a page with many `#section` links would otherwise flood the
+    table with skipped rows.)
   - De-duplicate across the scan, keeping the first `found_in` and counting `found_count`, plus the
     first non-empty link text as `label`. Link rows use `source = page` (they were found on a
     rendered page), and pages keep their post type as `source`.
