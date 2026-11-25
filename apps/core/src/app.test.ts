@@ -32,6 +32,7 @@ function build(extra?: (app: express.Express) => void, overrides: Partial<Config
     pool: new pg.Pool({ connectionString: "postgres://unused@127.0.0.1:1/none" }),
     ai: { reply: () => Promise.reject(new Error("unused")) },
     fetcher: safeFetch,
+    queue: { enqueueLinkScan: () => Promise.reject(new Error("unused")), stop: () => Promise.resolve() },
     extraRoutes: extra,
   });
 }

@@ -76,6 +76,7 @@ function build(opts: { fetcher?: Fetcher; now?: () => Date; config?: Partial<Con
     ai: { reply: () => Promise.reject(new Error("unused")) },
     fetcher: opts.fetcher ?? stubFetcher(() => new SafeFetchError("network_error", "x")).fetcher,
     now: opts.now,
+    queue: { enqueueLinkScan: () => Promise.reject(new Error("unused")), stop: () => Promise.resolve() },
   });
 }
 

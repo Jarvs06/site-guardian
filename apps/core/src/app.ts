@@ -8,11 +8,13 @@ import type { safeFetch } from "@sg/shared";
 import type { Config } from "./config.js";
 import type { AiClient } from "./lib/ai.js";
 import { createLogger, type Logger } from "./lib/logger.js";
+import type { JobQueue } from "./lib/queue.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
 import { requestId } from "./middleware/request-id.js";
 import { chatRouter } from "./routes/chat.js";
 import { configRouter } from "./routes/config.js";
 import { healthRouter } from "./routes/health.js";
+import { scansRouter } from "./routes/scans.js";
 import { sitesRouter } from "./routes/sites.js";
 
 export interface AppDeps {
@@ -21,6 +23,7 @@ export interface AppDeps {
   pool: pg.Pool;
   ai: AiClient;
   fetcher: typeof safeFetch;
+  queue: JobQueue;
   now?: () => Date;
   logger?: Logger;
   /** Mounts additional routes before the 404/error handlers (used by feature routers and tests). */
@@ -45,6 +48,7 @@ export function createApp(deps: AppDeps): express.Express {
   app.use("/api/v1", sitesRouter(deps));
   app.use("/api/v1", configRouter(deps));
   app.use("/api/v1", chatRouter(deps));
+  app.use("/api/v1", scansRouter(deps));
   deps.extraRoutes?.(app);
 
   app.use(notFoundHandler);

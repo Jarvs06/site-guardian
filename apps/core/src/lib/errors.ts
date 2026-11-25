@@ -23,6 +23,9 @@ export class ApiError extends Error {
   static notFound(message = "Not found.") {
     return new ApiError(404, "not_found", message);
   }
+  static conflict(message = "Conflict.") {
+    return new ApiError(409, "conflict", message);
+  }
   static rateLimited(retryAfterSec = 60, message = "Too many requests. Please try again later.") {
     return new ApiError(429, "rate_limited", message, { "Retry-After": String(Math.max(1, Math.ceil(retryAfterSec))) });
   }

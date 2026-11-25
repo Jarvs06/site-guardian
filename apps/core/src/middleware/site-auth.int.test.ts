@@ -40,6 +40,7 @@ const deps = {
   pool,
   ai: { reply: () => Promise.reject(new Error("unused")) },
   fetcher: safeFetch,
+  queue: { enqueueLinkScan: () => Promise.reject(new Error("unused")), stop: () => Promise.resolve() },
 };
 
 const app = createApp({

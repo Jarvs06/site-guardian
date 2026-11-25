@@ -58,6 +58,7 @@ function build(ai: AiClient) {
     pool,
     ai,
     fetcher: () => Promise.reject(new SafeFetchError("network_error", "x")),
+    queue: { enqueueLinkScan: () => Promise.reject(new Error("unused")), stop: () => Promise.resolve() },
   });
 }
 
