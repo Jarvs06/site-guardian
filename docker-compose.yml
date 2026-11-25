@@ -4,11 +4,11 @@
 #   scripts/dev-setup.sh        # installs WordPress and activates the plugin (uses the wpcli service)
 #
 # Core runs on the host (port 8787); the containers reach it at host.docker.internal.
-# The plugin directory (with vendor/) is mounted read-only.
+# The plugin directory (with vendor/) is mounted read-only, and so is scripts/mu-plugins (e2e
+# fixtures: the noindex page) as wp-content/mu-plugins.
 #
-# The site address is 127.0.0.1, not localhost: Core verifies the site by fetching it from the host,
-# safe-fetch pins to the first resolved address, and localhost resolves to ::1 first while the
-# port is published on IPv4.
+# The site address is 127.0.0.1, not localhost: localhost resolves to ::1 first while the port is
+# published on IPv4. (safe-fetch now falls back to the next address, but 127.0.0.1 stays.)
 
 x-wp-env: &wp-env
   WORDPRESS_DB_HOST: db:3306
@@ -24,6 +24,7 @@ x-wp-env: &wp-env
 x-wp-volumes: &wp-volumes
   - wordpress:/var/www/html
   - ./plugin:/var/www/html/wp-content/plugins/site-guardian:ro
+  - ./scripts/mu-plugins:/var/www/html/wp-content/mu-plugins:ro
 
 services:
   db:

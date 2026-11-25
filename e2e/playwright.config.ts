@@ -1,12 +1,13 @@
 import { defineConfig } from "@playwright/test";
 
-// Stage 1 end-to-end checks. Needs: local Supabase (`supabase start`), the WordPress stack
-// (`docker compose up -d && scripts/dev-setup.sh`). Core is built and run by the tests themselves.
+// Stage 1 and Stage 2 end-to-end checks. Needs: local Supabase (`supabase start`), the WordPress stack
+// (`docker compose up -d && scripts/dev-setup.sh`). Core and the worker are built and run by the tests.
 export default defineConfig({
   testDir: ".",
   testMatch: "*.spec.ts",
   globalSetup: "./global-setup.ts",
-  // The checks share one WordPress site and one Core process, and some stop Core: run them in order.
+  // The checks share one WordPress site, Core and worker, and some stop them: run them in order
+  // (stage1.spec.ts connects the site, then stage2.spec.ts scans it).
   workers: 1,
   fullyParallel: false,
   timeout: 60_000,

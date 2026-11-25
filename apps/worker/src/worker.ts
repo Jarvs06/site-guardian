@@ -21,6 +21,7 @@ export interface JobBoss {
   on(event: "error", listener: (err: Error) => void): unknown;
   start(): Promise<unknown>;
   createQueue(name: string, options: typeof LINK_SCAN_QUEUE_OPTIONS): Promise<void>;
+  updateQueue(name: string, options: typeof LINK_SCAN_QUEUE_OPTIONS): Promise<void>;
   work(
     name: string,
     options: typeof WORK_OPTIONS,
@@ -44,6 +45,8 @@ export async function startWorker(
   boss.on("error", (err) => log.error({ err }, "pg-boss error"));
   await boss.start();
   await boss.createQueue(LINK_SCAN_QUEUE, LINK_SCAN_QUEUE_OPTIONS);
+  // createQueue keeps an existing queue's options; this applies the current ones (e.g. the heartbeat).
+  await boss.updateQueue(LINK_SCAN_QUEUE, LINK_SCAN_QUEUE_OPTIONS);
   const deps = { pool, fetcher: safeFetch, allowLocal: config.allowLocal, now: () => Date.now(), log };
   await boss.work(LINK_SCAN_QUEUE, WORK_OPTIONS, async (jobs) => {
     for (const job of jobs) await handleLinkScanJob(deps, job);

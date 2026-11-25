@@ -4,7 +4,10 @@
 #   docker compose up -d && scripts/dev-setup.sh
 #
 # Creates admin/admin-pass-local (administrator) and sub/sub-pass-local (subscriber),
-# sets /%postname%/ permalinks so /site-health-check/ and /wp-json/ resolve.
+# sets /%postname%/ permalinks so /site-health-check/ and /wp-json/ resolve, and creates the
+# link scan fixtures (found by slug, so re-runs update them instead of adding copies):
+#   post sg-fixture-links    links to a missing page, an external page, a mailto: and a replytocom link
+#   page sg-fixture-noindex  noindex through scripts/mu-plugins/sg-fixture-noindex.php
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -58,5 +61,25 @@ if wp plugin is-active site-guardian >/dev/null 2>&1; then
 else
   wp plugin activate site-guardian
 fi
+
+# Creates or updates a published post of a type, identified by its slug.
+upsert_post() {
+  local type="$1" slug="$2" title="$3" content="$4" id
+  id="$(wp post list --post_type="$type" --name="$slug" --post_status=any --field=ID --format=ids)"
+  if [ -n "$id" ]; then
+    wp post update "$id" --post_title="$title" --post_content="$content" --post_status=publish >/dev/null
+  else
+    wp post create --post_type="$type" --post_name="$slug" --post_title="$title" \
+      --post_content="$content" --post_status=publish >/dev/null
+  fi
+}
+
+upsert_post post sg-fixture-links "SG fixture: links" \
+  '<p><a href="/sg-missing-page/">A missing page</a></p>
+<p><a href="https://example.com/">An external page</a></p>
+<p><a href="mailto:hi@example.com">Email us</a></p>
+<p><a href="/?replytocom=1">Reply to a comment</a></p>'
+upsert_post page sg-fixture-noindex "SG fixture: noindex" '<p>This page asks search engines not to index it.</p>'
+echo "Link scan fixtures ready."
 
 echo "WordPress ready at $SITE_URL (admin/admin-pass-local, sub/sub-pass-local)."

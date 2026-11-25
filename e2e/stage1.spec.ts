@@ -6,25 +6,12 @@
  * plugin, and Connect then recovers through Retry once Core is back.
  */
 import { randomUUID } from "node:crypto";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { CORE_API, startCore, stopCore } from "./core.js";
+import { collectConsoleErrors, logIn } from "./helpers.js";
 
 const SETTINGS = "/wp-admin/options-general.php?page=site-guardian";
 const APP_PAGE = "/site-health-check/";
-
-/**
- * Logs in by posting the login form through the page's request context (it shares the browser's
- * cookies). Filling the form in the browser races wp-login.php's focus script, which clears the
- * fields shortly after load.
- */
-async function logIn(page: Page, user: string, pass: string): Promise<void> {
-  await page.request.get("/wp-login.php"); // sets wordpress_test_cookie
-  const res = await page.request.post("/wp-login.php", {
-    form: { log: user, pwd: pass, "wp-submit": "Log In", testcookie: "1" },
-    maxRedirects: 0,
-  });
-  expect(res.status(), `login as ${user}`).toBe(302);
-}
 
 test.describe.configure({ mode: "serial" });
 
@@ -64,11 +51,7 @@ test("1. the admin connects and sees Connected", async ({ page }) => {
 
 test("2. the admin chats on /site-health-check and gets an assistant reply", async ({ page }) => {
   // CSP violations (spec §6.6: no inline scripts or styles) and script errors surface as console errors.
-  const consoleErrors: string[] = [];
-  page.on("console", (msg) => {
-    if (msg.type() === "error") consoleErrors.push(msg.text());
-  });
-  page.on("pageerror", (err) => consoleErrors.push(err.message));
+  const consoleErrors = collectConsoleErrors(page);
 
   await logIn(page, "admin", "admin-pass-local");
   const res = await page.goto(APP_PAGE);

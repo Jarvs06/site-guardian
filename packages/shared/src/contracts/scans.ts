@@ -9,7 +9,14 @@ export const SCAN_LIMITS = {
 } as const;
 
 export const LINK_SCAN_QUEUE = "link-scan";
-export const LINK_SCAN_QUEUE_OPTIONS = { retryLimit: 2, retryDelay: 30, expireInSeconds: 1500 } as const;
+// heartbeatSeconds: pg-boss fails an active job whose worker stopped refreshing it (a crash) after this
+// long plus its supervise interval, so it is retried in about two minutes instead of after expireInSeconds.
+export const LINK_SCAN_QUEUE_OPTIONS = {
+  retryLimit: 2,
+  retryDelay: 30,
+  expireInSeconds: 1500,
+  heartbeatSeconds: 30,
+} as const;
 
 export const ScanType = z.enum(["link"]);
 export type ScanType = z.infer<typeof ScanType>;
