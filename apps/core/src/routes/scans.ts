@@ -23,7 +23,7 @@ import {
   getStatus,
   latestScan,
   listResults,
-  sweepStaleStarting,
+  sweepStaleScans,
 } from "../lib/scan-store.js";
 import { requireSite, siteOf } from "../middleware/site-auth.js";
 
@@ -110,7 +110,7 @@ export function scansRouter(deps: AppDeps): Router {
         let scanId: string;
         try {
           scanId = await inTransaction(pool, async (client) => {
-            await sweepStaleStarting(client, site.id, now());
+            await sweepStaleScans(client, site.id, now());
             await deleteFinishedNonCompleted(client, site.id, type);
             const { rows } = await client.query<{ id: string }>(
               "insert into scan_jobs (website_id, type, status) values ($1, $2, 'starting') returning id",

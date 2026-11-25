@@ -7,7 +7,7 @@ import { createApp } from "../app.js";
 import type { Config } from "../config.js";
 import { generateCredential } from "../lib/credential.js";
 import type { JobQueue } from "../lib/queue.js";
-import { sweepStaleStarting } from "../lib/scan-store.js";
+import { sweepStaleScans } from "../lib/scan-store.js";
 import { createSupabase } from "../lib/supabase.js";
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -134,18 +134,55 @@ describe("POST /scans", () => {
     expect(await scanRow(stale)).toBeUndefined();
   });
 
-  it("sweepStaleStarting marks only scans starting for over 10 minutes as failed", async () => {
+  it("fails a scan left queued or running for over 2 hours, then creates a new one", async () => {
+    const s = await newSite();
+    const now = new Date();
+    const stuck = await insertScan(s.id, "running", new Date(now.getTime() - (2 * 60 + 1) * 60_000));
+    // Checked in a rolled-back transaction: POST /scans deletes the failed scan right after sweeping it.
+    const swept = await pool.connect();
+    try {
+      await swept.query("begin");
+      await sweepStaleScans(swept, s.id, now);
+      const { rows } = await swept.query("select status, error, completed_at from scan_jobs where id = $1", [stuck]);
+      expect(rows[0]).toMatchObject({ status: "failed", error: "The scan stopped unexpectedly. Please try again." });
+      expect(rows[0].completed_at).not.toBeNull();
+    } finally {
+      await swept.query("rollback");
+      swept.release();
+    }
+
+    const res = await createScan(build({ now: () => now }), s);
+    expect(res.status).toBe(201);
+    expect(res.body.already_running).toBe(false);
+    expect(res.body.scan_id).not.toBe(stuck);
+  });
+
+  it("leaves a scan running for 1 hour alone and returns it as already running", async () => {
+    const s = await newSite();
+    const now = new Date();
+    for (const status of ["queued", "running"]) {
+      await pool.query("delete from scan_jobs where website_id = $1", [s.id]);
+      const active = await insertScan(s.id, status, new Date(now.getTime() - 60 * 60_000));
+      const res = await createScan(build({ now: () => now }), s);
+      expect(res.status).toBe(200);
+      expect(res.body.already_running).toBe(true);
+      expect(res.body.scan_id).toBe(active);
+      expect((await scanRow(active)).status).toBe(status);
+    }
+  });
+
+  it("sweepStaleScans marks only scans starting for over 10 minutes as failed", async () => {
     const s = await newSite();
     const now = new Date();
     const stale = await insertScan(s.id, "starting", new Date(now.getTime() - 11 * 60_000));
-    await sweepStaleStarting(pool, s.id, now);
+    await sweepStaleScans(pool, s.id, now);
     const row = await scanRow(stale);
     expect(row.status).toBe("failed");
     expect(row.error).toEqual(expect.any(String));
     expect(row.completed_at).not.toBeNull();
 
     const fresh = await insertScan(s.id, "starting", new Date(now.getTime() - 9 * 60_000));
-    await sweepStaleStarting(pool, s.id, now);
+    await sweepStaleScans(pool, s.id, now);
     expect((await scanRow(fresh)).status).toBe("starting");
   });
 

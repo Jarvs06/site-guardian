@@ -5,6 +5,9 @@ import { SCAN_LIMITS, type LinkResult, type ScanStatus, type ScanType } from "@s
 type Db = Pick<pg.Pool, "query">;
 
 const STALE_STARTING_ERROR = "The scan didn't start in time. Please try again.";
+const STALE_ACTIVE_ERROR = "The scan stopped unexpectedly. Please try again.";
+/** A queued or running scan older than this can't still be working (time budget 20 min, 3 attempts). */
+const STALE_ACTIVE_MS = 2 * 60 * 60_000;
 
 interface ScanRow {
   id: string;
@@ -95,13 +98,20 @@ export async function latestScan(db: Db, websiteId: string, type: ScanType): Pro
   return rows[0] ? getStatus(db, rows[0].id, websiteId) : null;
 }
 
-/** Marks the site's scans still `starting` after the starting timeout as failed. */
-export async function sweepStaleStarting(db: Db, websiteId: string, now: Date): Promise<void> {
-  const cutoff = new Date(now.getTime() - SCAN_LIMITS.startingTimeoutMs);
+/**
+ * Fails the site's stale scans: `starting` past the starting timeout, and `queued` or `running` past the
+ * stale-active timeout (a worker's last attempt was killed, so nothing will finish it).
+ */
+export async function sweepStaleScans(db: Db, websiteId: string, now: Date): Promise<void> {
+  const startingCutoff = new Date(now.getTime() - SCAN_LIMITS.startingTimeoutMs);
+  const activeCutoff = new Date(now.getTime() - STALE_ACTIVE_MS);
   await db.query(
-    `update scan_jobs set status = 'failed', error = $3, completed_at = $4
-      where website_id = $1 and status = 'starting' and created_at < $2`,
-    [websiteId, cutoff, STALE_STARTING_ERROR, now],
+    `update scan_jobs
+        set status = 'failed', completed_at = $4,
+            error = case when status = 'starting' then $5 else $6 end
+      where website_id = $1
+        and ((status = 'starting' and created_at < $2) or (status in ('queued', 'running') and created_at < $3))`,
+    [websiteId, startingCutoff, activeCutoff, now, STALE_STARTING_ERROR, STALE_ACTIVE_ERROR],
   );
 }
 
