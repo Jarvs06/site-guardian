@@ -65,15 +65,50 @@ function siteFetcher(site: Site, opts: { failAfterLinkFetches?: number } = {}) {
     }
     linkFetches++;
     if (opts.failAfterLinkFetches !== undefined && linkFetches > opts.failAfterLinkFetches) {
-      return Promise.reject(new Error("worker crashed"));
+      // Fails a little later, so the link checks that succeeded are recorded first.
+      return new Promise((_, reject) => setTimeout(() => reject(new Error("worker crashed")), 50));
     }
     return Promise.resolve(base);
   }) as typeof safeFetch;
   return { fetcher, calls };
 }
 
-function deps(fetcher: typeof safeFetch) {
-  return { pool, fetcher, allowLocal: false, now: () => Date.now(), log };
+function deps(fetcher: typeof safeFetch, overrides: Partial<{ pool: pg.Pool; now: () => number }> = {}) {
+  return { pool, fetcher, allowLocal: false, now: () => Date.now(), log, ...overrides };
+}
+
+/** A clock that moves 1 s per call, so the engine reports progress (and writes its rows) on every check. */
+function steppingNow() {
+  let t = Date.now();
+  return () => (t += 1000);
+}
+
+/** The test pool, except that the first query matching `failOn` (or the first connect()) rejects. */
+function flakyPool(fail: { query?: RegExp; connect?: boolean }): pg.Pool {
+  let failed = false;
+  return new Proxy(pool, {
+    get(target, prop, receiver) {
+      if (prop === "query") {
+        return (text: unknown, ...rest: unknown[]) => {
+          if (!failed && fail.query && typeof text === "string" && fail.query.test(text)) {
+            failed = true;
+            return Promise.reject(new Error("database went away"));
+          }
+          return (target.query as (...a: unknown[]) => unknown)(text, ...rest);
+        };
+      }
+      if (prop === "connect") {
+        return () => {
+          if (!failed && fail.connect) {
+            failed = true;
+            return Promise.reject(new Error("database went away"));
+          }
+          return target.connect();
+        };
+      }
+      return Reflect.get(target, prop, receiver) as unknown;
+    },
+  });
 }
 const job = (scanId: string, retryCount = 0, retryLimit = 2) => ({
   id: randomUUID(),
@@ -161,15 +196,29 @@ describe("handleLinkScanJob", () => {
     const scanId = await newScan(site);
 
     await expect(
-      handleLinkScanJob(deps(siteFetcher(site, { failAfterLinkFetches: 3 }).fetcher), job(scanId)),
+      handleLinkScanJob(
+        deps(siteFetcher(site, { failAfterLinkFetches: 3 }).fetcher, { now: steppingNow() }),
+        job(scanId),
+      ),
     ).rejects.toThrow("worker crashed");
     const afterFirst = await scanRow(scanId);
     expect(afterFirst).toMatchObject({ status: "running", attempt_count: 1 });
     expect(await auditRows(site.id, "scan.failed")).toHaveLength(0);
-    expect((await resultCounts(scanId)).pages.n).toBe(2); // the retry has stored rows to resume from
+    // The retry has page rows and some (not all) link rows to resume from.
+    const stored = await resultCounts(scanId);
+    expect(stored.pages.n).toBe(2);
+    expect(stored.links.n).toBeGreaterThan(0);
+    expect(stored.links.n).toBeLessThan(5);
+    const { rows: storedLinks } = await pool.query<{ url: string }>(
+      "select url from link_results where scan_job_id = $1 and kind = 'link'",
+      [scanId],
+    );
 
     const second = siteFetcher(site);
-    await handleLinkScanJob(deps(second.fetcher), job(scanId, 1));
+    await handleLinkScanJob(deps(second.fetcher, { now: steppingNow() }), job(scanId, 1));
+
+    // Links stored by the first attempt aren't fetched again.
+    for (const { url } of storedLinks) expect(second.calls).not.toContain(url);
 
     const scan = await scanRow(scanId);
     expect(scan).toMatchObject({ status: "completed", attempt_count: 2 });
@@ -182,6 +231,7 @@ describe("handleLinkScanJob", () => {
     expect(scan).toMatchObject({
       pages_checked: counts.pages.n,
       links_checked: counts.links.n,
+      links_total: counts.links.n,
       processed: counts.pages.n + counts.links.n,
     });
   });
@@ -200,6 +250,34 @@ describe("handleLinkScanJob", () => {
     const audits = await auditRows(site.id, "scan.failed");
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({ actor: "system", metadata: { scan_id: scanId } });
+  });
+
+  it("marks the scan failed on the last retry when loading its pages fails", async () => {
+    const site = await newSite();
+    const scanId = await newScan(site);
+
+    await expect(
+      handleLinkScanJob(
+        deps(siteFetcher(site).fetcher, { pool: flakyPool({ query: /from scan_pages/ }) }),
+        job(scanId, 2, 2),
+      ),
+    ).rejects.toThrow("database went away");
+
+    expect(await scanRow(scanId)).toMatchObject({ status: "failed", error: FAILED_ERROR });
+    expect(await auditRows(site.id, "scan.failed")).toHaveLength(1);
+  });
+
+  it("marks the scan failed on the last retry when completing it fails", async () => {
+    const site = await newSite();
+    const scanId = await newScan(site);
+
+    await expect(
+      handleLinkScanJob(deps(siteFetcher(site).fetcher, { pool: flakyPool({ connect: true }) }), job(scanId, 2, 2)),
+    ).rejects.toThrow("database went away");
+
+    expect(await scanRow(scanId)).toMatchObject({ status: "failed", error: FAILED_ERROR });
+    expect(await auditRows(site.id, "scan.failed")).toHaveLength(1);
+    expect(await auditRows(site.id, "scan.completed")).toHaveLength(0);
   });
 
   it("does nothing for a scan cancelled before it started", async () => {

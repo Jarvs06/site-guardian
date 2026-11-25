@@ -50,15 +50,14 @@ export async function handleLinkScanJob(deps: LinkScanJobDeps, job: LinkScanJobI
     return;
   }
 
-  // Only the scan's stored page list is fetched, which keeps page fetches on the site's origin.
-  const { rows: pages } = await pool.query<{ url: string; source: string }>(
-    "select url, source from scan_pages where scan_job_id = $1 order by ordinal",
-    [scanId],
-  );
-
-  let result;
+  // Everything after the claim is inside the try, so a failure on the last attempt never leaves the scan running.
   try {
-    result = await runLinkScan({
+    // Only the scan's stored page list is fetched, which keeps page fetches on the site's origin.
+    const { rows: pages } = await pool.query<{ url: string; source: string }>(
+      "select url, source from scan_pages where scan_job_id = $1 order by ordinal",
+      [scanId],
+    );
+    const result = await runLinkScan({
       origin: scan.origin,
       pages,
       allowLocal: deps.allowLocal,
@@ -68,18 +67,18 @@ export async function handleLinkScanJob(deps: LinkScanJobDeps, job: LinkScanJobI
       now: deps.now,
       deadlineAt: scan.started_at.getTime() + SCAN_LIMITS.timeBudgetMs,
     });
+    if (result.outcome === "cancelled") {
+      log.info({ scanId }, "link scan cancelled");
+      return;
+    }
+    await complete(deps, scanId, scan.website_id, result.truncated);
+    log.info({ scanId, truncated: result.truncated }, "link scan completed");
   } catch (err) {
     log.error({ err, scanId, retryCount: job.retryCount }, "link scan attempt failed");
+    // Safe after a failed completion too: markFailed only touches a scan still queued or running.
     if (job.retryCount >= job.retryLimit) await markFailed(deps, scanId, scan.website_id);
     throw err;
   }
-
-  if (result.outcome === "cancelled") {
-    log.info({ scanId }, "link scan cancelled");
-    return;
-  }
-  await complete(deps, scanId, scan.website_id, result.truncated);
-  log.info({ scanId, truncated: result.truncated }, "link scan completed");
 }
 
 /** Completes the scan, deletes the site's other link scans and audits, in one transaction. */
