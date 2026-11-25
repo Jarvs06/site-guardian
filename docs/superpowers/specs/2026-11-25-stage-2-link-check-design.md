@@ -1,7 +1,7 @@
 # Site Guardian — Stage 2: Link Check (design)
 
 Date: 2026-11-25
-Status: draft, awaiting approval
+Status: approved 2026-11-25
 Builds on: `2026-11-24-site-guardian-rebuild-design.md` (the "rebuild spec"). Its architecture,
 security model and global constraints still apply. This document only adds to them.
 
