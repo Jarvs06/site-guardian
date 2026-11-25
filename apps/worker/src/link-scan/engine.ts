@@ -12,6 +12,7 @@ import {
 import { classifyError, classifyResponse } from "./classify.js";
 import { type ExtractedPage, extractPage } from "./html.js";
 import { createKeyedLimiter, type KeyedLimiter } from "./limits.js";
+import { cutCodePoints, sanitizeRow } from "./sanitize.js";
 
 /** A link_results row without `id` and `checked_at`. */
 export type ResultRow = {
@@ -66,7 +67,6 @@ const ORIGIN_KEY = "origin";
 const BATCH_SIZE = 100;
 const PROGRESS_INTERVAL_MS = 1000;
 const URL_MAX = 2048;
-const DETAIL_MAX = 500;
 const TOO_LARGE = "Page too large to read fully";
 const INVALID = "Invalid link";
 const NOT_WEB = "Not checked: not a web link";
@@ -220,11 +220,11 @@ class LinkScan {
     for (const link of page.links) {
       if (isWpClutter(link.url, this.input.origin)) continue;
       const tooLong = link.url.length > URL_MAX;
-      out.push({ url: link.url.slice(0, URL_MAX), label: link.label, skipped: tooLong ? INVALID : null });
+      out.push({ url: cutCodePoints(link.url, URL_MAX), label: link.label, skipped: tooLong ? INVALID : null });
     }
     for (const s of page.skipped) {
       const detail = s.reason === "invalid" || s.href.length > URL_MAX ? INVALID : NOT_WEB;
-      out.push({ url: s.href.slice(0, URL_MAX), label: s.label, skipped: detail });
+      out.push({ url: cutCodePoints(s.href, URL_MAX), label: s.label, skipped: detail });
     }
     if (this.links.size < SCAN_LIMITS.maxLinks) return out;
     const known = out.filter((l) => this.links.has(l.url));
@@ -291,7 +291,7 @@ class LinkScan {
   }
 
   private checkColumns(check: Check): Pick<ResultRow, "status" | "http_code" | "detail"> {
-    return { status: check.status, http_code: check.httpCode, detail: check.detail?.slice(0, DETAIL_MAX) ?? null };
+    return { status: check.status, http_code: check.httpCode, detail: check.detail };
   }
 
   /**
@@ -321,7 +321,7 @@ class LinkScan {
   }
 
   private queueRow(row: ResultRow): void {
-    this.buffer.push(row);
+    this.buffer.push(sanitizeRow(row));
     if (this.buffer.length >= BATCH_SIZE) void this.flush(false);
   }
 

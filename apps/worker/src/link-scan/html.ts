@@ -1,5 +1,6 @@
 import { normalizeLinkUrl, SCAN_LIMITS } from "@sg/shared";
 import { Parser } from "htmlparser2";
+import { cutCodePoints } from "./sanitize.js";
 
 export type ExtractedLink = { url: string; label: string | null };
 export type SkippedLink = { href: string; reason: "scheme" | "invalid"; label: string | null };
@@ -67,7 +68,7 @@ export function extractPage(html: string, finalUrl: string, headers: Record<stri
     if (anchor === null) return;
     const { href, text } = anchor;
     anchor = null;
-    const label = text.replace(/\s+/g, " ").trim().slice(0, LABEL_MAX) || null;
+    const label = cutCodePoints(text.replace(/\s+/g, " ").trim(), LABEL_MAX) || null;
     if (href === "" || href.startsWith("#")) return;
     const result = normalizeLinkUrl(href, base);
     if (result.ok) links.push({ url: result.url, label });

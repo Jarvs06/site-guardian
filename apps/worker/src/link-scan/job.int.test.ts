@@ -171,6 +171,29 @@ describe("handleLinkScanJob", () => {
     expect(audits[0]).toMatchObject({ actor: "system", metadata: { scan_id: scanId } });
   });
 
+  it("stores links whose label has a NUL or an emoji at the cut, and whose href has a NUL", async () => {
+    const site = await newSite();
+    const scanId = await newScan(site, "queued", [`${site.origin}/`]);
+    const emoji = "\u{1F600}";
+    const body =
+      `<a href="/nul">\u0000Nul</a><a href="/emoji">${"x".repeat(199)}${emoji}</a>` + `<a href="mailto:a\u0000b">M</a>`;
+    const fetcher = ((url: string) =>
+      Promise.resolve({ status: 200, finalUrl: url, headers: HTML, body: url.endsWith("/") ? body : "", truncated: false })) as typeof safeFetch;
+
+    await handleLinkScanJob(deps(fetcher), job(scanId));
+
+    expect(await scanRow(scanId)).toMatchObject({ status: "completed", links_total: 3, links_checked: 3 });
+    const { rows } = await pool.query<{ url: string; label: string }>(
+      "select url, label from link_results where scan_job_id = $1 and kind = 'link' order by url",
+      [scanId],
+    );
+    expect(rows).toEqual([
+      { url: `${site.origin}/emoji`, label: `${"x".repeat(199)}${emoji}` },
+      { url: `${site.origin}/nul`, label: "Nul" },
+      { url: "mailto:ab", label: "M" },
+    ]);
+  });
+
   it("deletes the site's older link scans when the scan completes, and keeps page_cap", async () => {
     const site = await newSite();
     const older = await newScan(site, "completed");
