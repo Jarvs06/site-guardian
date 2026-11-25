@@ -1,30 +1,52 @@
-import { Writable } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { startWorker } from "./worker.js";
+import { LINK_SCAN_QUEUE, LINK_SCAN_QUEUE_OPTIONS } from "@sg/shared";
+import { type JobBoss, startWorker } from "./worker.js";
 
-function capture() {
-  const lines: string[] = [];
-  const stream = new Writable({
-    write(chunk: Buffer, _enc, cb) {
-      lines.push(chunk.toString());
-      cb();
+function fakeBoss() {
+  const calls: string[] = [];
+  const queues: { name: string; options: unknown }[] = [];
+  const workers: { name: string; options: unknown }[] = [];
+  const boss: JobBoss = {
+    on: () => undefined,
+    start: () => {
+      calls.push("start");
+      return Promise.resolve();
     },
-  });
-  return { lines, stream };
+    createQueue: (name, options) => {
+      queues.push({ name, options });
+      return Promise.resolve();
+    },
+    work: (name, options) => {
+      workers.push({ name, options });
+      return Promise.resolve("worker-id");
+    },
+    stop: () => {
+      calls.push("stop");
+      return Promise.resolve();
+    },
+  };
+  return { boss, calls, queues, workers };
 }
 
+const config = { databaseUrl: "postgres://unused@127.0.0.1:1/none", allowLocal: false, logLevel: "silent" };
+
 describe("startWorker", () => {
-  it("resolves, logs idle once, and stop() resolves", async () => {
-    const { lines, stream } = capture();
-    const worker = await startWorker({ logLevel: "info" }, stream);
-    expect(lines.filter((l) => l.includes("worker idle — no jobs in Stage 1"))).toHaveLength(1);
-    await expect(worker.stop()).resolves.toBeUndefined();
+  it("starts pg-boss, creates the link scan queue and works it one job at a time", async () => {
+    const fake = fakeBoss();
+    const worker = await startWorker(config, () => fake.boss);
+    expect(fake.calls).toEqual(["start"]);
+    expect(fake.queues).toEqual([{ name: LINK_SCAN_QUEUE, options: LINK_SCAN_QUEUE_OPTIONS }]);
+    expect(fake.workers).toHaveLength(1);
+    expect(fake.workers[0]).toMatchObject({ name: LINK_SCAN_QUEUE, options: { batchSize: 1 } });
+    await worker.stop();
+    expect(fake.calls).toEqual(["start", "stop"]);
   });
 
   it("stop() is idempotent", async () => {
-    const { stream } = capture();
-    const worker = await startWorker({}, stream);
+    const fake = fakeBoss();
+    const worker = await startWorker(config, () => fake.boss);
     await worker.stop();
     await expect(worker.stop()).resolves.toBeUndefined();
+    expect(fake.calls.filter((c) => c === "stop")).toHaveLength(1);
   });
 });
