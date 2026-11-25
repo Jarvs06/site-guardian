@@ -351,6 +351,30 @@ describe("link scanner: finished scans", () => {
     expect(document.querySelectorAll("#sga-tbody tr")).toHaveLength(2);
   });
 
+  it("computes the summary pills from the loaded rows, not the cancelled scan's counts", async () => {
+    const api = fakeApi({
+      getCurrentLinkScan: vi.fn(async () =>
+        scan({ status: "cancelled", results_scan_id: "22222222-2222-2222-2222-222222222222", counts: { ...COUNTS } }),
+      ),
+      getLinkResults: vi.fn(async () => ({
+        items: [
+          result({ id: "1", kind: "page", source: "page", robots_index: "noindex", robots_follow: "nofollow" }),
+          result({ id: "2", url: "https://site.test/b", status: "broken", http_code: 404 }),
+          result({ id: "3", url: "https://site.test/c", kind: "page", robots_index: "index", robots_follow: "follow" }),
+        ],
+        next_cursor: null,
+      })),
+    });
+    screen = mountLinkScanner(mountFixture(), { api });
+    await flush();
+    expect($("sga-count-total").textContent).toBe("3 links");
+    expect($("sga-count-ok").textContent).toBe("2 OK");
+    expect($("sga-count-broken").textContent).toBe("1 Broken");
+    expect($("sga-count-indexed").textContent).toBe("1 Indexed");
+    expect($("sga-count-noindex").textContent).toBe("1 Noindex");
+    expect($("sga-count-nofollow").textContent).toBe("1 Nofollow");
+  });
+
   it("shows the start button when the site never scanned", async () => {
     const api = fakeApi();
     screen = mountLinkScanner(mountFixture(), { api });

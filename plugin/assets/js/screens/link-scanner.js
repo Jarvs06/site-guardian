@@ -201,7 +201,7 @@ export function mountLinkScanner(root, deps) {
       lastScannedEl.textContent = when ? "Last scanned " + when : "";
       lastScannedEl.hidden = !when;
       setButtons("completed");
-      void loadResults(s);
+      void loadResults();
       return;
     }
     lastScannedEl.hidden = true;
@@ -212,7 +212,7 @@ export function mountLinkScanner(root, deps) {
       setNotice(CANCELLED_MESSAGE);
       setButtons("idle");
     }
-    if (s.results_scan_id) void loadResults(s);
+    if (s.results_scan_id) void loadResults();
     else clearResults();
   }
 
@@ -364,8 +364,8 @@ export function mountLinkScanner(root, deps) {
 
   /* ── Results ── */
 
-  /** @param {any} s ScanStatus whose results_scan_id results to load */
-  async function loadResults(s) {
+  /** Loads every result row of the scan the status's results_scan_id names. */
+  async function loadResults() {
     const g = gen;
     clearResults();
     /** @type {any[]} */
@@ -384,7 +384,7 @@ export function mountLinkScanner(root, deps) {
       if (g === gen && !destroyed) setNotice(errorMessage(err, false), true);
       return;
     }
-    renderResults(items, s.counts);
+    renderResults(items);
   }
 
   function clearResults() {
@@ -396,11 +396,8 @@ export function mountLinkScanner(root, deps) {
     exportBtn.hidden = true;
   }
 
-  /**
-   * @param {any[]} items
-   * @param {any} counts
-   */
-  function renderResults(items, counts) {
+  /** @param {any[]} items Every result row of the scan being shown. */
+  function renderResults(items) {
     const frag = doc.createDocumentFragment();
     rows = items.map((item) => {
       const tr = buildRow(item);
@@ -408,7 +405,7 @@ export function mountLinkScanner(root, deps) {
       return { tr, item, seo: seoKey(item), url: String(item.url).toLowerCase() };
     });
     tbody.replaceChildren(frag);
-    renderPills(counts ?? {});
+    renderPills(countItems(items));
     summaryEl.hidden = false;
     filterBar.hidden = false;
     tableWrap.hidden = false;
@@ -416,7 +413,23 @@ export function mountLinkScanner(root, deps) {
     applyFilter();
   }
 
-  /** @param {any} c ScanStatus counts */
+  /**
+   * Counts the loaded rows the way Core counts a scan, so the pills always match the table.
+   * @param {any[]} items
+   */
+  function countItems(items) {
+    /** @type {Record<string, number>} */
+    const c = { ok: 0, broken: 0, redirect: 0, restricted: 0, warning: 0, skipped: 0, indexed: 0, noindex: 0, nofollow: 0 };
+    for (const item of items) {
+      if (Object.hasOwn(c, item.status)) c[item.status] += 1;
+      if (item.robots_index === "index") c.indexed += 1;
+      if (item.robots_index === "noindex") c.noindex += 1;
+      if (item.robots_follow === "nofollow") c.nofollow += 1;
+    }
+    return c;
+  }
+
+  /** @param {Record<string, number>} c Row counts */
   function renderPills(c) {
     const total = ["ok", "broken", "redirect", "restricted", "warning", "skipped"].reduce((n, k) => n + (c[k] || 0), 0);
     const pills = {
