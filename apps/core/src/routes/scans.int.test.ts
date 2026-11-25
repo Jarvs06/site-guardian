@@ -48,9 +48,9 @@ function fakeQueue() {
   return { queue, enqueued };
 }
 
-function build(opts: { queue?: JobQueue; now?: () => Date } = {}) {
+function build(opts: { queue?: JobQueue; now?: () => Date; config?: Partial<Config> } = {}) {
   return createApp({
-    config,
+    config: { ...config, ...opts.config },
     supabase,
     pool,
     ai: { reply: () => Promise.reject(new Error("unused")) },
@@ -60,8 +60,7 @@ function build(opts: { queue?: JobQueue; now?: () => Date } = {}) {
   });
 }
 
-async function newSite() {
-  const origin = `https://scan-${randomUUID()}.example.com`;
+async function newSite(origin = `https://scan-${randomUUID()}.example.com`) {
   const cred = generateCredential();
   const { rows } = await pool.query<{ id: string }>(
     `insert into websites (installation_id, origin, plan_id, site_url, credential_hash, credential_prefix)
@@ -206,6 +205,16 @@ describe("POST /scans/:id/pages", () => {
       { url: `${s.origin}/about/`, source: "page", ordinal: 1 },
       { url: `${s.origin}/blog/hello/`, source: "post", ordinal: 2 },
     ]);
+  });
+
+  it("accepts pages of a local site registered at an IP origin", async () => {
+    // 127.0.0.1:8080 itself may already be registered locally (origin is unique), so use a random port.
+    const s = await newSite(`http://127.0.0.1:${20000 + Math.floor(Math.random() * 40000)}`);
+    const app = build({ config: { ALLOW_LOCAL_SITES: true } });
+    const id = (await createScan(app, s)).body.scan_id as string;
+    const res = await sendPages(app, s, id, { pages: [{ url: `${s.origin}/about/`, source: "page" }] });
+    expect(res.body).toEqual({ accepted: 1, rejected: 0, pages_submitted: 1 });
+    expect((await storedPages(id)).map((p) => p.url)).toEqual([`${s.origin}/about/`]);
   });
 
   it("rejects URLs with credentials", async () => {

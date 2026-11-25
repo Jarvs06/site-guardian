@@ -47,4 +47,10 @@ describe("sameOrigin", () => {
     expect(sameOrigin("http://ex.com/", "https://ex.com")).toBe(false);
     expect(sameOrigin("garbage", "https://ex.com")).toBe(false);
   });
+
+  it("compares IP-host origins (local sites)", () => {
+    expect(sameOrigin("http://127.0.0.1:8080/a", "http://127.0.0.1:8080")).toBe(true);
+    expect(sameOrigin("http://127.0.0.1:8081/a", "http://127.0.0.1:8080")).toBe(false);
+    expect(sameOrigin("http://127.0.0.1/a", "https://example.com")).toBe(false);
+  });
 });

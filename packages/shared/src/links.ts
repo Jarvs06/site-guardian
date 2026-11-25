@@ -40,9 +40,13 @@ export function normalizeLinkUrl(href: string, base: string): NormalizedLink {
   return { ok: true, url: parsed.href };
 }
 
+/**
+ * True when url's normalized origin equals origin. IP hosts are allowed on both sides: a production
+ * origin is never an IP literal, so this only matters for local sites registered at an IP.
+ */
 export function sameOrigin(url: string, origin: string): boolean {
   try {
-    return normalizeOrigin(url) === normalizeOrigin(origin);
+    return normalizeOrigin(url, { allowIpHosts: true }) === normalizeOrigin(origin, { allowIpHosts: true });
   } catch {
     return false;
   }
