@@ -4,6 +4,7 @@
 import { createApi } from "./api.js";
 import { mountChat } from "./screens/chat.js";
 import { mountComingSoon } from "./screens/coming-soon.js";
+import { mountLinkScanner } from "./screens/link-scanner.js";
 
 /**
  * Tabs: buttons [role=tab][aria-controls] switch the [role=tabpanel] sections.
@@ -54,6 +55,9 @@ export function boot(doc) {
 
   const chatRoot = app.querySelector("#sga-app");
   if (chatRoot) mountChat(chatRoot, { api });
+
+  const linksRoot = app.querySelector("#sg-panel-links");
+  if (linksRoot) mountLinkScanner(linksRoot, { api });
 }
 
 boot(document);

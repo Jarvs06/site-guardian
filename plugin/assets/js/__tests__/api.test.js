@@ -118,3 +118,61 @@ describe("getConversation", () => {
     await expect(apiWith(fetchImpl).getConversation()).resolves.toBeNull();
   });
 });
+
+describe("link scan methods", () => {
+  const STATUS = { scan_id: "s-1", status: "running" };
+
+  it("startLinkScan posts to scans/link", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, STATUS));
+    await expect(apiWith(fetchImpl).startLinkScan()).resolves.toEqual(STATUS);
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe(REST + "scans/link");
+    expect(init.method).toBe("POST");
+    expect(init.headers["X-WP-Nonce"]).toBe("n0nce");
+  });
+
+  it("getCurrentLinkScan gets scans/link/current", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, { status: "none" }));
+    await expect(apiWith(fetchImpl).getCurrentLinkScan()).resolves.toEqual({ status: "none" });
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe(REST + "scans/link/current");
+    expect(init.method).toBe("GET");
+  });
+
+  it("getLinkResults gets scans/link/results, with the cursor when given", async () => {
+    const page = { items: [], next_cursor: null };
+    const fetchImpl = vi.fn(async () => jsonResponse(200, page));
+    const api = apiWith(fetchImpl);
+    await expect(api.getLinkResults()).resolves.toEqual(page);
+    await api.getLinkResults("123");
+    expect(fetchImpl.mock.calls[0][0]).toBe(REST + "scans/link/results");
+    expect(fetchImpl.mock.calls[0][1].method).toBe("GET");
+    expect(fetchImpl.mock.calls[1][0]).toBe(REST + "scans/link/results?cursor=123");
+  });
+
+  it("cancelLinkScan posts to scans/link/cancel", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, { ...STATUS, status: "cancelled" }));
+    await expect(apiWith(fetchImpl).cancelLinkScan()).resolves.toMatchObject({ status: "cancelled" });
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe(REST + "scans/link/cancel");
+    expect(init.method).toBe("POST");
+  });
+
+  it("rejects malformed scan and results bodies as bad_response", async () => {
+    const api = apiWith(vi.fn(async () => jsonResponse(200, { nope: true })));
+    await expect(api.getCurrentLinkScan()).rejects.toMatchObject({ code: "bad_response" });
+    await expect(api.getLinkResults()).rejects.toMatchObject({ code: "bad_response" });
+  });
+
+  it("passes Core's rate_limited through as ApiFailure", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(429, { error: { code: "rate_limited", message: "Too many requests." } }),
+    );
+    const err = await apiWith(fetchImpl)
+      .startLinkScan()
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(ApiFailure);
+    expect(err.code).toBe("rate_limited");
+    expect(err.status).toBe(429);
+  });
+});

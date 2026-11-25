@@ -121,5 +121,40 @@ export function createApi(config) {
       const data = await request("GET", "conversation");
       return typeof data.conversation_id === "string" && data.conversation_id ? data.conversation_id : null;
     },
+
+    /** Start a link scan (or get the one already running). @returns {Promise<object>} ScanStatus */
+    async startLinkScan() {
+      return scanStatus(await request("POST", "scans/link"));
+    },
+
+    /** @returns {Promise<object>} ScanStatus, or `{status: "none"}` */
+    async getCurrentLinkScan() {
+      return scanStatus(await request("GET", "scans/link/current"));
+    },
+
+    /**
+     * One page of the latest results.
+     * @param {string|null} [cursor]
+     * @returns {Promise<{items: object[], next_cursor: string|null}>}
+     */
+    async getLinkResults(cursor) {
+      const path = "scans/link/results" + (cursor ? "?cursor=" + encodeURIComponent(cursor) : "");
+      const data = await request("GET", path);
+      if (!Array.isArray(data.items)) throw new ApiFailure("bad_response", GENERIC_MESSAGE, 200);
+      return { items: data.items, next_cursor: typeof data.next_cursor === "string" ? data.next_cursor : null };
+    },
+
+    /** @returns {Promise<object>} ScanStatus, or `{status: "none"}` */
+    async cancelLinkScan() {
+      return scanStatus(await request("POST", "scans/link/cancel"));
+    },
   };
+}
+
+/**
+ * @param {any} data
+ */
+function scanStatus(data) {
+  if (typeof data.status !== "string") throw new ApiFailure("bad_response", GENERIC_MESSAGE, 200);
+  return data;
 }

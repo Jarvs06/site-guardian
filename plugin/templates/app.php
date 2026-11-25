@@ -172,8 +172,8 @@ $site_guardian_site_host = (string) preg_replace( '#^https?://#', '', untrailing
 	</div><!-- /#sga-app -->
 	</section>
 
-	<!-- ════════ Link Scanner (old link-scanner.php) — coming soon ════════ -->
-	<section class="sg-panel sg-panel--page" id="sg-panel-links" role="tabpanel" aria-labelledby="sg-tab-links" hidden data-coming-soon>
+	<!-- ════════ Link Scanner (old link-scanner.php) ════════ -->
+	<section class="sg-panel sg-panel--page" id="sg-panel-links" role="tabpanel" aria-labelledby="sg-tab-links" hidden>
 	<div class="sga-scanner" id="sga-scanner">
 
 		<div class="sga-scanner-header">
@@ -184,19 +184,23 @@ $site_guardian_site_host = (string) preg_replace( '#^https?://#', '', untrailing
 				<span><?php esc_html_e( 'Link Scanner', 'site-guardian' ); ?></span>
 			</div>
 			<div class="sga-scanner-actions">
-				<button id="sga-scan-start" class="sga-btn sga-btn--primary" type="button" disabled>
+				<button id="sga-scan-start" class="sga-btn sga-btn--primary" type="button">
 					<?php esc_html_e( '🔍 Scan All Links', 'site-guardian' ); ?>
 				</button>
-				<button id="sga-scan-refresh" class="sga-btn sga-btn--ghost" type="button" hidden disabled>
+				<button id="sga-scan-refresh" class="sga-btn sga-btn--ghost" type="button" hidden>
 					<?php esc_html_e( '🔄 Re-scan', 'site-guardian' ); ?>
 				</button>
-				<button id="sga-scan-export" class="sga-btn sga-btn--ghost" type="button" hidden disabled>
+				<button id="sga-scan-cancel" class="sga-btn sga-btn--ghost" type="button" hidden>
+					<?php esc_html_e( '⏹ Cancel', 'site-guardian' ); ?>
+				</button>
+				<button id="sga-scan-export" class="sga-btn sga-btn--ghost" type="button" hidden>
 					<?php esc_html_e( '📥 Export CSV', 'site-guardian' ); ?>
 				</button>
 			</div>
 		</div>
 
-		<p class="sg-coming-soon" role="status"><strong><?php esc_html_e( 'Coming soon', 'site-guardian' ); ?></strong> — <?php esc_html_e( 'the link scanner is being rebuilt and will be back in a later update. You can still ask about your links in the chat.', 'site-guardian' ); ?></p>
+		<p class="sga-last-scanned" id="sga-last-scanned" hidden></p>
+		<p class="sga-scan-notice" id="sga-scan-notice" role="status"></p>
 
 		<!-- Progress bar -->
 		<div class="sga-progress-wrap" id="sga-progress-wrap" hidden>
@@ -228,22 +232,22 @@ $site_guardian_site_host = (string) preg_replace( '#^https?://#', '', untrailing
 		<div class="sga-filter-bar" id="sga-filter-bar" hidden>
 			<div class="sga-filter-group">
 				<span class="sga-filter-label"><?php esc_html_e( 'Status', 'site-guardian' ); ?></span>
-				<button class="sga-filter-btn active" type="button" data-filter-status="all" disabled><?php esc_html_e( 'All', 'site-guardian' ); ?></button>
-				<button class="sga-filter-btn" type="button" data-filter-status="ok" disabled><?php esc_html_e( 'OK', 'site-guardian' ); ?></button>
-				<button class="sga-filter-btn" type="button" data-filter-status="broken" disabled><?php esc_html_e( 'Broken', 'site-guardian' ); ?></button>
-				<button class="sga-filter-btn" type="button" data-filter-status="restricted" disabled><?php esc_html_e( 'Restricted', 'site-guardian' ); ?></button>
-				<button class="sga-filter-btn" type="button" data-filter-status="warning" disabled><?php esc_html_e( 'Warning', 'site-guardian' ); ?></button>
-				<button class="sga-filter-btn" type="button" data-filter-status="redirect" disabled><?php esc_html_e( 'Redirect', 'site-guardian' ); ?></button>
+				<button class="sga-filter-btn active" type="button" data-filter-status="all"><?php esc_html_e( 'All', 'site-guardian' ); ?></button>
+				<button class="sga-filter-btn" type="button" data-filter-status="ok"><?php esc_html_e( 'OK', 'site-guardian' ); ?></button>
+				<button class="sga-filter-btn" type="button" data-filter-status="broken"><?php esc_html_e( 'Broken', 'site-guardian' ); ?></button>
+				<button class="sga-filter-btn" type="button" data-filter-status="restricted"><?php esc_html_e( 'Restricted', 'site-guardian' ); ?></button>
+				<button class="sga-filter-btn" type="button" data-filter-status="warning"><?php esc_html_e( 'Warning', 'site-guardian' ); ?></button>
+				<button class="sga-filter-btn" type="button" data-filter-status="redirect"><?php esc_html_e( 'Redirect', 'site-guardian' ); ?></button>
 			</div>
 			<div class="sga-filter-group">
 				<span class="sga-filter-label"><?php esc_html_e( 'SEO', 'site-guardian' ); ?></span>
-				<button class="sga-filter-btn active" type="button" data-filter-seo="all" disabled><?php esc_html_e( 'All', 'site-guardian' ); ?></button>
-				<button class="sga-filter-btn" type="button" data-filter-seo="indexed" disabled><?php esc_html_e( 'Indexed', 'site-guardian' ); ?></button>
-				<button class="sga-filter-btn" type="button" data-filter-seo="noindex" disabled><?php esc_html_e( 'Noindex', 'site-guardian' ); ?></button>
-				<button class="sga-filter-btn" type="button" data-filter-seo="nofollow" disabled><?php esc_html_e( 'Nofollow', 'site-guardian' ); ?></button>
-				<button class="sga-filter-btn" type="button" data-filter-seo="unknown" disabled><?php esc_html_e( 'Unknown', 'site-guardian' ); ?></button>
+				<button class="sga-filter-btn active" type="button" data-filter-seo="all"><?php esc_html_e( 'All', 'site-guardian' ); ?></button>
+				<button class="sga-filter-btn" type="button" data-filter-seo="indexed"><?php esc_html_e( 'Indexed', 'site-guardian' ); ?></button>
+				<button class="sga-filter-btn" type="button" data-filter-seo="noindex"><?php esc_html_e( 'Noindex', 'site-guardian' ); ?></button>
+				<button class="sga-filter-btn" type="button" data-filter-seo="nofollow"><?php esc_html_e( 'Nofollow', 'site-guardian' ); ?></button>
+				<button class="sga-filter-btn" type="button" data-filter-seo="unknown"><?php esc_html_e( 'Unknown', 'site-guardian' ); ?></button>
 			</div>
-			<input type="search" id="sga-search" class="sga-search" placeholder="<?php esc_attr_e( 'Filter URLs…', 'site-guardian' ); ?>" hidden disabled>
+			<input type="search" id="sga-search" class="sga-search" placeholder="<?php esc_attr_e( 'Filter URLs…', 'site-guardian' ); ?>">
 		</div>
 
 		<!-- Results table -->
