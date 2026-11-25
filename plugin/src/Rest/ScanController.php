@@ -94,12 +94,23 @@ final class ScanController {
 			}
 			$sent = self::call( 'POST', '/scans/' . $scan_id . '/pages', $body );
 			if ( ! $sent->ok ) {
-				return self::error( $sent );
+				return self::abandon( $scan_id, $sent );
 			}
 		}
 
 		$begun = self::call( 'POST', '/scans/' . $scan_id . '/begin', array() );
-		return $begun->ok ? new \WP_REST_Response( $begun->data, 200 ) : self::error( $begun );
+		return $begun->ok ? new \WP_REST_Response( $begun->data, 200 ) : self::abandon( $scan_id, $begun );
+	}
+
+	/**
+	 * Best-effort cancel of a scan that could not be started, so it doesn't look active; returns the original error.
+	 *
+	 * @param string $scan_id Scan id.
+	 * @param Result $failed  The failed call.
+	 */
+	private static function abandon( string $scan_id, Result $failed ): \WP_REST_Response {
+		self::call( 'POST', '/scans/' . $scan_id . '/cancel', array() );
+		return self::error( $failed );
 	}
 
 	/**

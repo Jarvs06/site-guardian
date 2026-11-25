@@ -92,6 +92,40 @@ final class ScanControllerTest extends TestCase {
 		$this->assertSame( 'queued', $res->get_data()['status'] );
 	}
 
+	public function test_failed_begin_cancels_the_new_scan_and_returns_the_begin_error(): void {
+		$this->pages( 2 );
+		$this->routes(
+			array(
+				'POST /scans'                          => Result::success( 201, array( 'scan_id' => self::SID, 'status' => 'starting', 'already_running' => false ) ),
+				'POST /scans/' . self::SID . '/pages'  => Result::success( 200, array( 'accepted' => 3 ) ),
+				'POST /scans/' . self::SID . '/begin'  => Result::failure( 0, 'network_error', 'x' ),
+				'POST /scans/' . self::SID . '/cancel' => Result::success( 200, array( 'scan_id' => self::SID, 'status' => 'cancelled' ) ),
+			)
+		);
+		$res   = ScanController::handle_start();
+		$paths = $this->paths();
+		$this->assertSame( 'POST /scans/' . self::SID . '/cancel', $paths[ count( $paths ) - 1 ] );
+		$this->assertSame( 502, $res->get_status() );
+		$this->assertSame( 'network_error', $res->get_data()['error']['code'] );
+	}
+
+	public function test_failed_pages_call_cancels_the_new_scan_even_if_cancel_fails(): void {
+		$this->pages( 2 );
+		$this->routes(
+			array(
+				'POST /scans'                         => Result::success( 201, array( 'scan_id' => self::SID, 'status' => 'starting', 'already_running' => false ) ),
+				'POST /scans/' . self::SID . '/pages' => Result::failure( 429, 'rate_limited', 'Slow down', self::RID ),
+			)
+		);
+		$res = ScanController::handle_start();
+		$this->assertSame(
+			array( 'POST /scans', 'POST /scans/' . self::SID . '/pages', 'POST /scans/' . self::SID . '/cancel' ),
+			$this->paths()
+		);
+		$this->assertSame( 429, $res->get_status() );
+		$this->assertSame( 'rate_limited', $res->get_data()['error']['code'] );
+	}
+
 	public function test_already_running_skips_pages_and_begin(): void {
 		$status = array( 'scan_id' => self::SID, 'status' => 'running', 'already_running' => true );
 		$this->routes( array( 'POST /scans' => Result::success( 200, $status ) ) );

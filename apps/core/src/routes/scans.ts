@@ -263,6 +263,8 @@ export function scansRouter(deps: AppDeps): Router {
     try {
       const q = LatestQuery.safeParse(req.query);
       if (!q.success) throw ApiError.badRequest("Invalid query.");
+      // The owner can't start a new scan (which also sweeps) while one looks active, so sweep here too.
+      await sweepStaleScans(pool, siteOf(req).id, now());
       const status = await latestScan(pool, siteOf(req).id, q.data.type);
       if (!status) throw ApiError.notFound("Scan not found.");
       res.json(status);

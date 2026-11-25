@@ -504,6 +504,17 @@ describe("GET /scans/latest", () => {
     expect(res.body.status).toBe("failed");
   });
 
+  it("reports a scan stuck in starting for over 10 minutes as failed", async () => {
+    const s = await newSite();
+    const now = new Date();
+    const stale = await insertScan(s.id, "starting", new Date(now.getTime() - 11 * 60_000));
+    const res = await get(build({ now: () => now }), s, "/scans/latest?type=link");
+    expect(res.status).toBe(200);
+    expect(res.body.scan_id).toBe(stale);
+    expect(res.body.status).toBe("failed");
+    expect((await scanRow(stale)).status).toBe("failed");
+  });
+
   it("404s for a site with no scans, and 400s for an unknown type", async () => {
     const s = await newSite();
     expect((await get(build(), s, "/scans/latest?type=link")).status).toBe(404);
