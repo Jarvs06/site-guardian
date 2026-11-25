@@ -77,6 +77,13 @@ describe("extractPage", () => {
     expect([r3.robotsIndex, r3.robotsFollow]).toEqual(["index", "nofollow"]);
   });
 
+  it("keeps at most 5,000 links and skipped hrefs per page but still reads robots after them", () => {
+    const anchors = Array.from({ length: 6000 }, (_, i) => (i % 2 ? `<a href=/a${i}>x</a>` : `<a href=tel:${i}>x</a>`));
+    const r = extractPage(`${anchors.join("")}<meta name="robots" content="noindex">`, PAGE, {});
+    expect(r.links.length + r.skipped.length).toBe(5000);
+    expect(r.robotsIndex).toBe("noindex");
+  });
+
   it("does not throw on malformed html", () => {
     const r = extractPage(`<div><a href="/a">open <b>bold<a href="/b">next<p><a href="/c"`, PAGE, {});
     expect(r.links.map((l) => l.url)).toEqual(["https://ex.com/a", "https://ex.com/b"]);

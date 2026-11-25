@@ -45,12 +45,16 @@ export type LinkScanInput = {
   sink: ScanSink;
   now: () => number;
   deadlineAt: number;
+  /** For tests: called after each page is merged, with the pages and link entries still held in memory. */
+  onHeld?: (held: { pages: number; entries: number }) => void;
 };
 
 export type LinkScanResult = { outcome: "completed" | "cancelled"; truncated: "link_cap" | "time_limit" | null };
 
 type Check = { status: LinkStatus; httpCode: number | null; detail: string | null };
 type LinkEntry = { url: string; label: string | null; foundIn: string; foundCount: number; skipped: string | null };
+/** A link taken from a page, ready to merge into the scan's links. */
+type PageLink = { url: string; label: string | null; skipped: string | null };
 type FetchResult = SafeFetchResponse | SafeFetchError | typeof STOPPED;
 
 const STOPPED = Symbol("stopped");
@@ -151,19 +155,26 @@ class LinkScan {
   private async fetchPages(): Promise<void> {
     const { pages } = this.input;
     // Links are merged in page order whatever order fetches finish in, so found_in, labels and
-    // the link cap are deterministic.
-    const extracted: (ExtractedPage | null | undefined)[] = new Array<undefined>(pages.length);
+    // the link cap are deterministic. A page's links are held only until they are merged.
+    const held: (PageLink[] | null)[] = new Array<null>(pages.length).fill(null);
+    const settled: boolean[] = new Array<boolean>(pages.length).fill(false);
     let next = 0;
     const merge = (): void => {
-      for (; next < pages.length && extracted[next] !== undefined; next++) {
-        const page = extracted[next];
-        if (page) this.addLinks(pages[next]?.url ?? "", page);
+      for (; next < pages.length && settled[next]; next++) {
+        const links = held[next];
+        held[next] = null;
+        if (links) this.addLinks(pages[next]?.url ?? "", links);
+      }
+      const { onHeld } = this.input;
+      if (onHeld) {
+        onHeld({ pages: held.filter((h) => h !== null).length, entries: held.reduce((n, h) => n + (h?.length ?? 0), 0) });
       }
     };
     await settleAll(
       pages.map((page, i) =>
         this.originLimit(ORIGIN_KEY, async () => {
-          extracted[i] = await this.checkPage(page);
+          held[i] = await this.checkPage(page);
+          settled[i] = true;
           merge();
           this.tick();
         }),
@@ -172,7 +183,7 @@ class LinkScan {
   }
 
   /** Records the page row and returns its links, or null when it has none to give. */
-  private async checkPage(page: { url: string; source: string }): Promise<ExtractedPage | null> {
+  private async checkPage(page: { url: string; source: string }): Promise<PageLink[] | null> {
     const r = await this.request(page.url, PAGE_REQUEST);
     if (r === STOPPED) return null;
     let check = classify(page.url, r);
@@ -200,19 +211,29 @@ class LinkScan {
         ...robots,
       });
     }
-    return extracted;
+    return extracted && this.pageLinks(extracted);
   }
 
-  private addLinks(foundIn: string, page: ExtractedPage): void {
+  /** The page's links in merge order. Once the link cap is full only links already kept can count. */
+  private pageLinks(page: ExtractedPage): PageLink[] {
+    const out: PageLink[] = [];
     for (const link of page.links) {
       if (isWpClutter(link.url, this.input.origin)) continue;
       const tooLong = link.url.length > URL_MAX;
-      this.addLink(link.url.slice(0, URL_MAX), link.label, foundIn, tooLong ? INVALID : null);
+      out.push({ url: link.url.slice(0, URL_MAX), label: link.label, skipped: tooLong ? INVALID : null });
     }
     for (const s of page.skipped) {
       const detail = s.reason === "invalid" || s.href.length > URL_MAX ? INVALID : NOT_WEB;
-      this.addLink(s.href.slice(0, URL_MAX), s.label, foundIn, detail);
+      out.push({ url: s.href.slice(0, URL_MAX), label: s.label, skipped: detail });
     }
+    if (this.links.size < SCAN_LIMITS.maxLinks) return out;
+    const known = out.filter((l) => this.links.has(l.url));
+    if (known.length < out.length) this.linkCap = true;
+    return known;
+  }
+
+  private addLinks(foundIn: string, links: PageLink[]): void {
+    for (const link of links) this.addLink(link.url, link.label, foundIn, link.skipped);
   }
 
   private addLink(url: string, label: string | null, foundIn: string, skipped: string | null): void {

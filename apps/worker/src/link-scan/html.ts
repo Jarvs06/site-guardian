@@ -1,4 +1,4 @@
-import { normalizeLinkUrl } from "@sg/shared";
+import { normalizeLinkUrl, SCAN_LIMITS } from "@sg/shared";
 import { Parser } from "htmlparser2";
 
 export type ExtractedLink = { url: string; label: string | null };
@@ -60,6 +60,8 @@ export function extractPage(html: string, finalUrl: string, headers: Record<stri
   let base = finalUrl;
   let baseSeen = false;
   let anchor: { href: string; text: string } | null = null;
+  // A scan keeps at most maxLinks links, so one page never needs to give more; robots are still read.
+  const full = (): boolean => links.length + skipped.length >= SCAN_LIMITS.maxLinks;
 
   const finishAnchor = (): void => {
     if (anchor === null) return;
@@ -91,7 +93,7 @@ export function extractPage(html: string, finalUrl: string, headers: Record<stri
           }
         } else if (name === "a") {
           finishAnchor();
-          if (attrs.href !== undefined) anchor = { href: attrs.href.trim(), text: "" };
+          if (attrs.href !== undefined && !full()) anchor = { href: attrs.href.trim(), text: "" };
         }
       },
       ontext(text) {

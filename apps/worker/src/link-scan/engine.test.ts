@@ -336,6 +336,57 @@ describe("runLinkScan", () => {
     expect(s.progress.at(-1)).toEqual({ pagesTotal: 51, pagesChecked: 51, linksTotal: 5000, linksChecked: 5000 });
   });
 
+  it("releases each page's links once they are merged", async () => {
+    const held: { pages: number; entries: number }[] = [];
+    const { fetcher } = fakeFetcher({
+      "https://ex.com/p0/": async () => (await delay(30), htmlPage(["/a"])),
+      "https://ex.com/p1/": htmlPage(["/b", "/c"]),
+      "https://ex.com/p2/": htmlPage(["/d"]),
+    });
+    const s = memorySink();
+    await runLinkScan({
+      origin: ORIGIN,
+      pages: ["p0", "p1", "p2"].map((p) => ({ url: `https://ex.com/${p}/`, source: "page" })),
+      allowLocal: false,
+      userAgent: UA,
+      fetcher,
+      sink: s.sink,
+      now: () => 0,
+      deadlineAt: 1_000_000,
+      onHeld: (h) => held.push(h),
+    });
+    // p1 and p2 wait for p0, then all three are merged and nothing is held.
+    expect(held).toContainEqual({ pages: 2, entries: 3 });
+    expect(held.at(-1)).toEqual({ pages: 0, entries: 0 });
+    expect(s.rows.filter((r) => r.kind === "link")).toHaveLength(4);
+  });
+
+  it("keeps only already-known links from pages extracted after the link cap is reached", async () => {
+    const held: { pages: number; entries: number }[] = [];
+    const { fetcher } = fakeFetcher({
+      "https://ex.com/p0/": htmlPage(Array.from({ length: 5000 }, (_, i) => `/l${i}`)),
+      "https://ex.com/p1/": async () => (await delay(60), htmlPage(["/l1"])),
+      "https://ex.com/p2/": async () => (await delay(20), htmlPage(["/l0", "/new1", "/new2", "mailto:x@y"])),
+    });
+    const s = memorySink();
+    const result = await runLinkScan({
+      origin: ORIGIN,
+      pages: ["p0", "p1", "p2"].map((p) => ({ url: `https://ex.com/${p}/`, source: "page" })),
+      allowLocal: false,
+      userAgent: UA,
+      fetcher,
+      sink: s.sink,
+      now: () => 0,
+      deadlineAt: 1_000_000,
+      onHeld: (h) => held.push(h),
+    });
+    expect(held).toContainEqual({ pages: 1, entries: 1 });
+    expect(held.every((h) => h.entries <= 1)).toBe(true);
+    expect(result.truncated).toBe("link_cap");
+    expect(s.link("https://ex.com/l0")?.found_count).toBe(2);
+    expect(s.link("https://ex.com/new1")).toBeUndefined();
+  });
+
   it("stops scheduling after the sink reports cancelled", async () => {
     const pages = Array.from({ length: 10 }, (_, i) => ({ url: `https://ex.com/p${i}/` }));
     const { fetcher, calls } = fakeFetcher({});
