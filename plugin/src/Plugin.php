@@ -30,6 +30,7 @@ final class Plugin {
 		\SiteGuardian\Admin\SettingsPage::register();
 		\SiteGuardian\Admin\Notices::register();
 		\SiteGuardian\Rest\ChatController::register();
+		\SiteGuardian\Rest\ScanController::register();
 		\SiteGuardian\Frontend\Access::register();
 		\SiteGuardian\Frontend\Template::register();
 		\SiteGuardian\Frontend\Page::register();
